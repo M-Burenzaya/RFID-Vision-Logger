@@ -1,31 +1,63 @@
 import signal
 import time
-from mfrc522 import MFRC522  # Make sure this path is correct if in another folder
+import csv
+import os
+from datetime import datetime
+from mfrc522 import MFRC522  # Your local or installed version
+
+# Convert UID list to string
+def uidToString(uid):
+    return ''.join('{:02X}'.format(x) for x in uid)
+
+# Get current file directory
+base_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Create /Excel subfolder next to script if not exists
+csv_dir = os.path.join(base_dir, "Excel")
+os.makedirs(csv_dir, exist_ok=True)
+
+# Set the CSV output file path
+csv_file = os.path.join(csv_dir, "Output.csv")
+
+# ✅ Check if the file exists
+file_exists = os.path.exists(csv_file)
+
+# 📝 Open the file once in append mode, keep it open during runtime
+log_file = open(csv_file, mode='a', newline='')
+writer = csv.writer(log_file)
+
+# 🧾 If the file is new, write the header
+if not file_exists:
+    writer.writerow(["Timestamp", "UID"])
 
 # Initialize the reader
 reader = MFRC522()
 
-def uidToString(uid):
-    return ''.join('{:02X}'.format(x) for x in uid)
-
-print("Place your RFID card near the reader.")
-print("Press Ctrl+C to exit.")
+print("📡 Place your RFID card near the reader.")
+print("🔴 Press Ctrl+C to exit.")
 
 try:
     while True:
-        # Look for cards
         (status, tag_type) = reader.MFRC522_Request(reader.PICC_REQIDL)
 
-        # If a card is found
         if status == reader.MI_OK:
-            print("Card detected")
+            print("✅ Card detected")
 
-            # Get the UID
             (status, uid) = reader.MFRC522_Anticoll()
             if status == reader.MI_OK:
-                print("Card UID:", uidToString(uid))
-                time.sleep(1)  # Prevent multiple readings of the same tag
+                uid_str = uidToString(uid)
+                now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                print(f"🔍 UID: {uid_str}")
+
+                # Save to CSV
+                writer.writerow([now, uid_str])
+                log_file.flush()  # 💾 Ensure it's written to disk
+
+                time.sleep(1)  # Debounce to avoid multiple reads
+
 except KeyboardInterrupt:
-    print("\nExiting...")
+    print("\n🛑 Exiting...")
+
 finally:
+    log_file.close()
     reader.Close_MFRC522()
