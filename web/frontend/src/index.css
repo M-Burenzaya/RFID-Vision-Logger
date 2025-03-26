@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   font-size: 16px;
@@ -6,34 +8,6 @@
 
   color: #ffffff;
   background-color: #1a1a1a;
-}
-
-.navbar {
-  position: sticky;
-  top: 0;
-  left: 0;
-  width: 100%;
-  z-index: 1000;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background-color: #1f2937; /* same as before */
-  color: white;
-  padding: 16px 24px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-}
-
-
-/* Link used in your banner */
-.source_link {
-  color: white;
-  font-weight: bold;
-  text-decoration: none;
-  transition: color 0.2s ease;
-}
-
-.source_link:hover {
-  color: #a855f7; /* Tailwind's purple-400 */
 }
 
 body {
@@ -46,32 +20,4 @@ body {
 h1 {
   font-size: 2.5rem;
   line-height: 1.2;
-}
-
-/* Buttons (general style) */
-button {
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: 1rem;
-  font-family: inherit;
-  font-weight: 500;
-  padding: 0.5em 1em;
-  cursor: pointer;
-  transition: color 0.2s ease;
-}
-
-button:hover {
-  color: #a855f7;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-
-  .source_link:hover {
-    color: #747bff;
-  }
 }

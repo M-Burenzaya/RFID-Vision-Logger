@@ -1,12 +1,9 @@
-import Navbar from './components/Navbar';
+import Content from './components/Content.jsx';
 
 function App() {
   return (
     <div>
-      <Navbar />
-      <div className="p-6">
-        <h1 className="text-3xl font-bold">Home Page</h1>
-      </div>
+      <Content />
     </div>
   );
 }
