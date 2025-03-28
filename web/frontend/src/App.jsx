@@ -8,6 +8,7 @@ import UserLog from './pages/UserLog.jsx';
 import Help from './pages/Help.jsx';
 
 
+
 function App() {
   return (
     <div className="max-w-7xl mx-auto px-8 flex flex-col gap-10">
@@ -20,11 +21,13 @@ function App() {
         <div className="bg-white text-[#285082] py-4 shadow-sm rounded-2xl relative">
           <Routes>
               <Route path="/" element={<Home />} />
-              <Route path="/rfid" element={<RFID />} />
+              <Route path="/rfid/*" element={<RFID />} />
               <Route path="/vision" element={<Vision />} />
               <Route path="/user-log" element={<UserLog />} />
               <Route path="/help" element={<Help />} />
           </Routes>
+
+          
         </div>
       </BrowserRouter>
     </div>
