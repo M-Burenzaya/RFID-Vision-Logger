@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+
 import Navbar from './components/Navbar.jsx';
 
 import Home from './pages/Home.jsx';
@@ -11,7 +12,7 @@ import Help from './pages/Help.jsx';
 
 function App() {
   return (
-    <div className="max-w-8xl mx-auto px-8 flex flex-col h-screen">
+    <div className="max-w-8xl mx-auto px-8 flex flex-col">
       <BrowserRouter>
         <div className="bg-white text-[#285082] shadow-sm relative h-full">
 
@@ -19,7 +20,7 @@ function App() {
             <Navbar />  
           </div>
 
-          <div className="">
+          <div className="basis-full">
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/rfid/*" element={<RFID />} />

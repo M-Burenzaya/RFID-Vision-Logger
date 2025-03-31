@@ -1,21 +1,29 @@
 import { useState, useEffect } from "react";
+import axios from "axios"; // Import Axios
 
 const Home = () => {
   const [count, setCount] = useState(0);
 
   // Fetch initial counter value
   useEffect(() => {
-    fetch("http://localhost:8000/api/counter")
-      .then((res) => res.json())
-      .then((data) => setCount(data.value));
+    // Use Axios to fetch initial counter value
+    axios.get("http://localhost:8000/api/counter")
+      .then((response) => {
+        setCount(response.data.value);  // Set the count from response
+      })
+      .catch((error) => {
+        console.error("Error fetching the counter:", error);
+      });
   }, []);
 
   const handleClick = async (type) => {
-    const res = await fetch(`http://localhost:8000/api/${type}`, {
-      method: "POST",
-    });
-    const data = await res.json();
-    setCount(data.value);
+    // Use Axios for POST requests
+    try {
+      const response = await axios.post(`http://localhost:8000/api/${type}`);
+      setCount(response.data.value);  // Set the count from response
+    } catch (error) {
+      console.error(`Error with ${type} request:`, error);
+    }
   };
 
   return (
