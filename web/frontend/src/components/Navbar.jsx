@@ -12,7 +12,7 @@ const Navbar = () => {
         setMenuOpen(false);
       }
     };
-  
+    
     if (menuOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
@@ -31,8 +31,10 @@ const Navbar = () => {
     '/user-log': 'User Log',
     '/help': 'Help'
   };
-
-  const currentPage = pageNameMap[location.pathname] || 'Page';
+  
+  const pathSegments = location.pathname.split('/');
+  const firstSegment = pathSegments[1] ? '/' + pathSegments[1] : '/';
+  const currentPage = pageNameMap[firstSegment] || 'Page';
 
   const linkClass = ({ isActive }) =>
     `px-4 py-2 text-sm md:text-base rounded transition ${
@@ -41,7 +43,7 @@ const Navbar = () => {
 
   return (
     <nav>
-      <div className="mx-auto flex items-center justify-between px-10">
+      <div className="mx-auto flex items-center justify-between px-6 sm:px-6 md:px-12 lg:px-18 xl:px-24">
 
         {/* Logo */}
         <a className="text-xl py-3 font-bold hover:text-[#678cdf]"
@@ -54,7 +56,9 @@ const Navbar = () => {
 
         {/* Mobile: Current Page + Hamburger */}
         <div className="md:hidden flex items-center gap-12 ">
+
           <span className="text-lg font-medium">{currentPage}</span>
+
           <button onClick={() => setMenuOpen(!menuOpen)}>
             <Menu className="w-6 h-6" />
           </button>

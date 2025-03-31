@@ -1,20 +1,30 @@
-import { NavLink } from 'react-router-dom';
+// src/pages/RFID.jsx
+import { Routes, Route, Navigate } from 'react-router-dom';
+import RFIDAdd from './subpages/RFIDAdd.jsx';
+import RFIDList from './subpages/RFIDList.jsx';
+import RFIDSettings from './subpages/RFIDSettings';
+import TabLink from '../components/TabLink.jsx';
 
-const TabNav = () => {
-  const tabClass = ({ isActive }) =>
-    `relative px-4 py-2 text-sm font-medium transition-all duration-500 ease-in-out ${
-      isActive
-        ? 'text-[#285082]  after:content-[""] after:absolute after:-bottom-0 after:left-1/2 after:-translate-x-1/2 after:w-10 after:h-0.5 after:bg-[#285082] after:rounded-full'
-        : 'text-gray-500  hover:text-[#285082]'
-    }`;
-
+const RFID = () => {
   return (
-    <nav className="flex items-center gap-6 border-b border-gray-200">
-      <NavLink to="add" className={tabClass}>Add UID</NavLink>
-      <NavLink to="list" className={tabClass}>UID List</NavLink>
-      <NavLink to="settings" className={tabClass}>RFID Settings</NavLink>
-    </nav>
+    <div className="px-6 sm:px-6 md:px-12 lg:px-18 xl:px-24 py-6">
+
+      {/* Sub-navigation */}
+      <div className="flex justify-center gap-12 sm:gap-12 md:gap-16 lg:gap-20 xl:gap-24 border-b pb-2 mb-4">
+        <TabLink to="add">Add UID</TabLink>
+        <TabLink to="list">UID List</TabLink>
+        <TabLink to="settings">RFID Settings</TabLink>
+      </div>
+
+      {/* Nested sub-routes */}
+      <Routes>
+        <Route index element={<Navigate to="add" replace />} />
+        <Route path="add" element={<RFIDAdd />} />
+        <Route path="list" element={<RFIDList />} />
+        <Route path="settings" element={<RFIDSettings />} />
+      </Routes>
+    </div>
   );
 };
 
-export default TabNav;
+export default RFID;
