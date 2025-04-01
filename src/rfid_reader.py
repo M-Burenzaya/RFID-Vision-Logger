@@ -1,72 +1,158 @@
 from mfrc522 import MFRC522
+import time
 
 class RFIDReader:
     def __init__(self):
         # Initialize the MFRC522 module
+        self._init_reader()
+
+    def _init_reader(self):
+        """Initialize the actual hardware."""
         self.MIFAREReader = MFRC522()
     
-    def initialize_reader(self):
+    def initialize_rfid(self):
         """Initialize the RC522 module."""
-        print("Initializing the RFID reader...")
+        try:
+            self._init_reader()
+            # print("RFID reader reinitialized.")
+            return True, None
+        except Exception as e:
+            # print(f"[ERROR] Failed to initialize RFID reader: {e}")
+            return False, str(e)
 
-    def scan_rfid_tag(self):
-        """Check if an RFID card is present and read its UID."""
-        print("Waiting for RFID card...")
-        # Check if a new card is detected
-        if self.MIFAREReader.MFRC522_Request(self.MIFAREReader.PICC_REQIDL) == self.MIFAREReader.MI_OK:
-            print("Card detected")
-            # Get the UID of the card
-            status, uid = self.MIFAREReader.MFRC522_Anticoll()
-            if status == self.MIFAREReader.MI_OK:
-                # Convert UID to hex and return
-                uid_str = ''.join([str(x) for x in uid])
-                return uid_str
-        return None
-
-    def read_rfid_data(self):
-        """Read data from a block on the RFID card."""
-        print("Enter block number to read (0-63):")
-        block = int(input())
-        print("Are you sure you want to read data from block", block, "? (Y/n)")
-        if input().lower() == 'y':
-            data = self.MIFAREReader.MFRC522_Read(block)
-            if data:
-                print(f"Data read from block {block}: {data}")
-            else:
-                print(f"Failed to read from block {block}")
-        else:
-            print("Cancelled read operation.")
-    
-    def write_rfid_data(self):
-        """Write data to a block on the RFID card."""
-        print("Enter block number to write to (0-63):")
-        block = int(input())
-        print("Enter data to write (16 bytes):")
-        data = list(map(int, input().split()))
-        if len(data) != 16:
-            print("Data must be exactly 16 bytes!")
-            return
-        print(f"Are you sure you want to write to block {block} with data {data}? (Y/n)")
-        if input().lower() == 'y':
-            self.MIFAREReader.MFRC522_Write(block, data)
-            print(f"Data written to block {block}.")
-        else:
-            print("Cancelled write operation.")
-    
-    def halt_communication(self):
+    def halt_rfid(self):
         """Halt communication with the RFID card."""
-        self.MIFAREReader.MFRC522_StopCrypto1()
-        print("Communication halted with the card.")
+        try:
+            buf = [self.MIFAREReader.PICC_HALT, 0x00]
+            crc = self.MIFAREReader.CalulateCRC(buf)
+            buf.append(crc[0])
+            buf.append(crc[1])
+            self.MIFAREReader.MFRC522_ToCard(self.MIFAREReader.PCD_TRANSCEIVE, buf)
+            # print("Communication halted with the card.")
+            return True, None
+        except Exception as e:
+            # print(f"[ERROR] Failed to halt RFID: {e}")
+            return False, str(e)
         
-    def reset_reader(self):
+    def reset_rfid(self):
         """Reset the RC522 module."""
-        print("Resetting the RFID reader...")
-        self.MIFAREReader.MFRC522_Reset()
+        try:
+            self.MIFAREReader.MFRC522_Reset()
+            # print("Resetting the RFID reader...")
+            return True, None
+        except Exception as e:
+            # print(f"[ERROR] Failed to reset RFID reader: {e}")
+            return False, str(e)
 
-    def close(self):
-        """Clean up GPIO and other resources."""
-        # GPIO.cleanup()
-        print("Cleaned up GPIO resources.")
+    def close_rfid(self):
+        """Clean up SPI and GPIO resources."""
+        try:
+            self.MIFAREReader.Close_MFRC522()
+            # print("RFID reader closed and resources cleaned up.")
+            return True, None
+        except Exception as e:
+            # print(f"[ERROR] Failed to close RFID reader: {e}")
+            return False, str(e)
+
+    def scan_rfid(self):
+        """Scan for an RFID card for up to 5 seconds."""
+        try:
+            timeout = 5  # seconds
+            start_time = time.time()
+
+            while time.time() - start_time < timeout:
+                status, tag_type = self.MIFAREReader.MFRC522_Request(self.MIFAREReader.PICC_REQIDL)
+                if status == self.MIFAREReader.MI_OK:
+                    status, uid = self.MIFAREReader.MFRC522_Anticoll()
+                    if status == self.MIFAREReader.MI_OK:
+                        uid_str = "-".join(map(str, uid))  # Convert UID to string
+                        return True, {"uid": uid_str}
+                time.sleep(0.1)  # avoid overloading CPU
+
+            return False, "Timeout: No RFID card detected within 5 seconds."
+        except Exception as e:
+            return False, str(e)
+
+
+    def read_rfid(self, block, key=[0xFF]*6):
+        """Scan for a card and read data from a specific block."""
+        try:
+            timeout = 5
+            start_time = time.time()
+
+            while time.time() - start_time < timeout:
+                status, tag_type = self.MIFAREReader.MFRC522_Request(self.MIFAREReader.PICC_REQIDL)
+                if status == self.MIFAREReader.MI_OK:
+                    status, uid = self.MIFAREReader.MFRC522_Anticoll()
+                    if status == self.MIFAREReader.MI_OK:
+                        self.MIFAREReader.MFRC522_SelectTag(uid)
+                        auth_status = self.MIFAREReader.MFRC522_Auth(
+                            self.MIFAREReader.PICC_AUTHENT1A,
+                            block,
+                            key,
+                            uid
+                        )
+                        if auth_status == self.MIFAREReader.MI_OK:
+                            data = self.MIFAREReader.MFRC522_Read(block)
+
+                            # Stop encryption
+                            self.MIFAREReader.MFRC522_StopCrypto1()
+                            # Halt communication
+                            self.halt_rfid()
+
+                            if data:
+                                return True, {"uid": "-".join(map(str, uid)), "data": data}
+                            else:
+                                return False, "Failed to read data from the card."
+                        else:
+                            return False, "Authentication failed."
+                time.sleep(0.1)
+
+            return False, "Timeout: No RFID card detected within 5 seconds."
+        except Exception as e:
+            return False, str(e)
+
+
+    
+    def write_rfid(self, block, data_str, key=[0xFF]*6):
+        """Scan for a card and write string data to a specific block."""
+        try:
+            timeout = 5
+            start_time = time.time()
+
+            while time.time() - start_time < timeout:
+                status, tag_type = self.MIFAREReader.MFRC522_Request(self.MIFAREReader.PICC_REQIDL)
+                if status == self.MIFAREReader.MI_OK:
+                    status, uid = self.MIFAREReader.MFRC522_Anticoll()
+                    if status == self.MIFAREReader.MI_OK:
+                        self.MIFAREReader.MFRC522_SelectTag(uid)
+                        auth_status = self.MIFAREReader.MFRC522_Auth(
+                            self.MIFAREReader.PICC_AUTHENT1A,
+                            block,
+                            key,
+                            uid
+                        )
+                        if auth_status == self.MIFAREReader.MI_OK:
+                            # Convert string to 16-byte padded list
+                            byte_data = list(data_str.encode("utf-8"))
+                            if len(byte_data) > 16:
+                                byte_data = byte_data[:16]
+                            else:
+                                byte_data += [0] * (16 - len(byte_data))
+
+                            self.MIFAREReader.MFRC522_Write(block, byte_data)
+                            self.MIFAREReader.MFRC522_StopCrypto1()
+                            self.halt_rfid()
+
+                            return True, {"uid": "-".join(map(str, uid)), "block": block}, None
+                        else:
+                            return False, None, "auth_failed"
+                time.sleep(0.1)
+
+            return False, None, "timeout"
+        except Exception as e:
+            return False, None, f"exception: {str(e)}"
+
 
 def test_rfid_reader():
     import keyboard
@@ -99,7 +185,7 @@ def test_rfid_reader():
             while State1:
                 print("Are you sure you want to initialize the reader? (Y/n)")
                 if input().lower() == 'y':
-                    reader.initialize_reader()
+                    reader.initialize_rfid()
                     print("Initialization complete! Press any key to return.")
                     input()
                     State1 = False
@@ -109,7 +195,7 @@ def test_rfid_reader():
             while State2:
                 print("Are you sure you want to scan RFID tag? (Y/n)")
                 if input().lower() == 'y':
-                    uid = reader.scan_rfid_tag()
+                    uid = reader.scan_rfid()
                     if uid:
                         print(f"UID of the scanned card: {uid}")
                     else:
@@ -121,7 +207,7 @@ def test_rfid_reader():
             State3 = True
             print("Entered State 3: Read RFID Data")
             while State3:
-                reader.read_rfid_data()
+                reader.read_rfid()
                 print("Press any key to return.")
                 input()
                 State3 = False
@@ -129,7 +215,7 @@ def test_rfid_reader():
             State4 = True
             print("Entered State 4: Write RFID Data")
             while State4:
-                reader.write_rfid_data()
+                reader.write_rfid()
                 print("Press any key to return.")
                 input()
                 State4 = False
@@ -137,7 +223,7 @@ def test_rfid_reader():
             State5 = True
             print("Entered State 5: Halt Communication")
             while State5:
-                reader.halt_communication()
+                reader.halt_rfid()
                 print("Press any key to return.")
                 input()
                 State5 = False
@@ -145,7 +231,7 @@ def test_rfid_reader():
             State6 = True
             print("Entered State 6: Reset Reader")
             while State6:
-                reader.reset_reader()
+                reader.reset_rfid()
                 print("Press any key to return.")
                 input()
                 State6 = False

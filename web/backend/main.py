@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi import Request
 
 import sys
 import os
@@ -12,6 +14,7 @@ from rfid_reader import RFIDReader
 
 # Add the src directory to the Python path
 
+reader = RFIDReader()
 app = FastAPI()
 
 # Allow React frontend (adjust origin if needed)
@@ -47,51 +50,134 @@ def decrement_counter():
     counter["value"] -= 1
     return {"value": counter["value"]}
 
-# Example of integrating RFIDReader if needed
+# Initialize
 @app.post("/initialize")
 def initialize_rfid():
     """Initializes the RFID reader"""
-    # print("Initializing the RFID reader...")
-    # RFIDReader().initialize_reader()  # Call your actual RFID initialization function here
-    return {"message": "Reader initialized"}
-
-# Reset
-@app.post("/reset")
-def reset_rfid():
-    # RFIDReader().reset()
-    return {"message": "Reader reset to default state."}
-
-# Close
-@app.post("/close")
-def close_rfid():
-    # RFIDReader().close()
-    return {"message": "Reader session closed."}
+    try:
+        success, error = reader.initialize_rfid()
+        if success:
+            return {"message": "RFID reader initialized."}
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"message": f"Failed to initialize RFID reader: {error}"}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Exception while initializing: {e}"}
+        )
 
 # Halt
 @app.post("/halt")
 def halt_rfid():
-    # RFIDReader().halt()
-    return {"message": "Communication halted."}
+    """Halts communication with the RFID card"""
+    try:
+        success, error = reader.halt_rfid()
+        if success:
+            return {"message": "Communication halted."}
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"message": f"Failed to halt communication: {error}"}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Exception while halting: {e}"}
+        )
+
+# Reset
+@app.post("/reset")
+def reset_rfid():
+    """Resets the RFID reader"""
+    try:
+        success, error = reader.reset_rfid()
+        if success:
+            return {"message": "RFID reader has been reset."}
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"message": f"Failed to reset RFID reader: {error}"}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Exception while resetting: {e}"}
+        )
+
+# Close
+@app.post("/close")
+def close_rfid():
+    """Closes the RFID reader"""
+    try:
+        success, error = reader.close_rfid()
+        if success:
+            return {"message": "RFID reader closed successfully."}
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"message": f"Failed to close RFID reader: {error}"}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Failed to close RFID reader: {e}"}
+        )
+
 
 # Scan
 @app.post("/scan")
 def scan_rfid():
-    # uid = RFIDReader().scan()
-    uid = "04AABBCCDDEE"  # Example dummy UID
-    return {"message": "Card scanned successfully.", "uid": uid}
+    """Scans for an RFID card and returns UID"""
+    success, result = reader.scan_rfid()
+    if success:
+        return {"message": "RFID card detected.", "uid": result["uid"]}
+    else:
+        return JSONResponse(status_code=500, content={"message": result})
 
 # Read
 @app.post("/read")
-def read_data(body: BlockData):
-    block = body.block
-    # data = RFIDReader().read_block(int(block))
-    data = "TestDataBlock"  # Dummy data
-    return {"message": f"Data read from block {block}.", "data": data}
+async def read_rfid(request: Request):
+    """Reads data from a specified RFID block"""
+    try:
+        body = await request.json()
+        block = body.get("block", 8)  # default to block 8 if not provided
+        success, result = reader.read_rfid(block=block)
+
+        if success:
+            return {
+                "message": "Card read successfully.",
+                "uid": result["uid"],
+                "data": result["data"]
+            }
+        else:
+            return JSONResponse(status_code=500, content={"message": result})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": str(e)})
+
 
 # Write
 @app.post("/write")
-def write_data(body: BlockData):
-    block = body.block
-    data = body.data
-    # RFIDReader().write_block(int(block), data)
-    return {"message": f"Data written to block {block}: {data}"}
+async def write_rfid(request: Request):
+    try:
+        body = await request.json()
+        block = int(body.get("block"))
+        data_str = body.get("data", "")
+
+        success, result, error = reader.write_rfid(block, data_str)
+
+        if success:
+            return {
+                "message": "Data written successfully.",
+                "uid": result["uid"],
+                "block": result["block"]
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"message": "Failed to write RFID card.", "error": error}
+            )
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": str(e)})

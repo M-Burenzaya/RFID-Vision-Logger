@@ -7,9 +7,15 @@ const RFIDSettings = () => {
   const [writeData, setWriteData] = useState("");
   const [debugConsole, setDebugConsole] = useState([]);
   const debugRef = useRef(null);
-  const [selectedReadBlock, setSelectedReadBlock] = useState("4");
-  const [selectedWriteBlock, setSelectedWriteBlock] = useState("4");
-  
+  const [selectedReadBlock, setSelectedReadBlock] = useState(4);
+  const [selectedWriteBlock, setSelectedWriteBlock] = useState(4);
+  const [isScanningUid, setIsScanningUid] = useState(false);
+  const [isReadingBlock, setIsReadingBlock] = useState(false);
+  const [isWritingBlock, setIsWritingBlock] = useState(false);
+  const [scanplaceholder, setScanPlaceholder] = useState("Unique Identifier (UID)");
+  const [readPlaceholder, setReadPlaceholder] = useState("Read Data (16 bytes)");
+  const [writePlaceholder, setWritePlaceholder] = useState("Read Data (16 bytes)");
+
   useEffect(() => {
     if (debugRef.current) {
       debugRef.current.scrollTop = debugRef.current.scrollHeight;
@@ -46,6 +52,7 @@ const RFIDSettings = () => {
 
   // Halt communication
   const handleHalt = async () => {
+
     try {
       const response = await api.post("/halt");
       updateDebugConsole("Request sent.", "SUCCESS");
@@ -64,6 +71,9 @@ const RFIDSettings = () => {
 
   // Reset reader
   const handleReset = async () => {
+    setUid("");  // <--- reset UID
+    setReadData("");  // <--- reset read data
+    setWriteData("");  // <--- reset write data
     try {
       const response = await api.post("/reset");
       updateDebugConsole("Request sent.", "SUCCESS");
@@ -82,6 +92,9 @@ const RFIDSettings = () => {
 
   // Close reader
   const handleClose = async () => {
+    setUid("");  // <--- reset UID
+    setReadData("");  // <--- reset read data
+    setWriteData("");  // <--- reset write data
     try {
       const response = await api.post("/close");
       updateDebugConsole("Request sent.", "SUCCESS");
@@ -99,86 +112,140 @@ const RFIDSettings = () => {
   };
   // Scan RFID tag
   const handleScan = async () => {
+    setIsScanningUid(true);
+    setUid("");  // <--- reset UID
+
+    setScanPlaceholder("Press RFID card in 5 seconds...");
+    setIsScanningUid(true);
+
+    let countdown = 5;
+    const intervalId = setInterval(() => {
+      countdown -= 1;
+      if (countdown > 0) {
+        setScanPlaceholder(`Press RFID card in ${countdown} seconds...`);
+      }
+    }, 1000); // every second
+
+
     try {
       const response = await api.post("/scan");
-      setUid(response.data.uid || "No UID");
       updateDebugConsole("Request sent.", "SUCCESS");
-
-      if (response.data?.message) {
-        updateDebugConsole(response.data.message, "MESSAGE");
-      }
-
+  
       if (response.data?.uid) {
-        updateDebugConsole(`UID: ${response.data.uid}`, "INFO");
+        setUid(response.data.uid);  // <--- update UID state
+        updateDebugConsole(`Card UID: ${response.data.uid}`, "INFO");
+      } else if (response.data?.message) {
+        updateDebugConsole(response.data.message, "INFO");
       }
+  
     } catch (error) {
-      updateDebugConsole("Failed to scan RFID tag.", "ERROR");
-
+      updateDebugConsole("Failed to scan RFID card.", "ERROR");
+  
       if (error.response?.data?.message) {
         updateDebugConsole(`Server error: ${error.response.data.message}`, "ERROR");
       }
+    } finally {
+      setIsScanningUid(false);  // Re-enable the button
+      setScanPlaceholder("Unique Identifier (UID)");
     }
-  };
+  }
 
   // Read data from RFID card
   const handleRead = async () => {
-    const block = selectedReadBlock;
-    
+    setUid("");
+    setReadData("");
+    setScanPlaceholder("Waiting for UID...");
+    setReadPlaceholder("Press RFID card in 5 seconds...");
+    setIsReadingBlock(true);  // <<--- here
+  
+    let countdown = 5;
+    const intervalId = setInterval(() => {
+      countdown -= 1;
+      if (countdown > 0) {
+        setReadPlaceholder(`Press RFID card in ${countdown} seconds...`);
+      }
+    }, 1000);
+  
     try {
-      const response = await api.post("/read", { block });
-      setReadData(response.data.data);
-      updateDebugConsole(`Read successful from block ${block}.`, "SUCCESS");
+      const response = await api.post("/read", {
+        block: selectedReadBlock,
+      });
+      updateDebugConsole("Request sent.", "SUCCESS");
+  
+      if (response.data?.uid) {
+        setUid(response.data.uid);
 
-      if (response.data?.message) {
-        updateDebugConsole(response.data.message, "MESSAGE");
+        const byteArray = response.data.data;
+        const raw = byteArray.join(" ");
+        const ascii = String.fromCharCode(...byteArray).replace(/\0/g, '');
+        
+        // setReadData(`${ascii} (${raw})`); 
+        setReadData(`${ascii}`); 
+
+        updateDebugConsole(`Card UID: ${response.data.uid}`, "INFO");
+        updateDebugConsole(`Card Data: ${response.data.data.join(" ")}`, "INFO");
+      } else if (response.data?.message) {
+        setReadPlaceholder(response.data.message);
       }
-
-      if (response.data?.data) {
-        updateDebugConsole(`Data: ${response.data.data}`, "INFO");
-      }
-
     } catch (error) {
-      updateDebugConsole("Failed to read data.", "ERROR");
-
+      setReadPlaceholder("Read failed.");
       if (error.response?.data?.message) {
         updateDebugConsole(`Server error: ${error.response.data.message}`, "ERROR");
       }
+    } finally {
+      clearInterval(intervalId);
+      setIsReadingBlock(false); // <<--- reset when done
+      setScanPlaceholder("Unique Identifier (UID)");
+      setReadPlaceholder("Read Data (16 bytes)");
     }
   };
   
   // Write data to the RFID card
   const handleWrite = async () => {
-    const block = selectedWriteBlock;
-    let dataToWrite = writeData.trim(); 
-  
-    if (!dataToWrite) {
-      updateDebugConsole("Write data is empty. Please enter data before writing.", "WARNING");
+    if (!writeData) {
+      updateDebugConsole("No data entered. Please enter text to write.", "WARNING");
+      setWritePlaceholder("Write Data (16 bytes)");
       return;
     }
   
-    if (dataToWrite.length > 16) {
-      updateDebugConsole("Write data too long. Must be 16 characters or fewer.", "WARNING");
+    if (writeData.length > 16) {
+      updateDebugConsole("Data too long. Maximum 16 characters allowed.", "WARNING");
+      setWritePlaceholder("Write Data (16 bytes)");
       return;
     }
   
-    updateDebugConsole(`Preparing to write to block ${block}.`, "INFO");
-    await new Promise((res) => setTimeout(res, 100));
+    setIsWritingBlock(true);
+    setWritePlaceholder("Waiting for RFID card...");
+  
+    let countdown = 5;
+    const intervalId = setInterval(() => {
+      countdown -= 1;
+      if (countdown > 0) {
+        setWritePlaceholder(`Press RFID card in ${countdown} seconds...`);
+      }
+    }, 1000);
   
     try {
-      const response = await api.post("/write", { block, data: dataToWrite });
-      updateDebugConsole(`Write successful to block ${block}.`, "SUCCESS");
+      const response = await api.post("/write", {
+        block: selectedWriteBlock,
+        data: writeData,
+      });
   
-      if (response.data?.message) {
-        updateDebugConsole(response.data.message, "MESSAGE");
-      }
+      setUid(response.data.uid);
+      setWritePlaceholder("Write successful.");
+      updateDebugConsole(`Written to block ${response.data.block}`, "SUCCESS");
     } catch (error) {
-      updateDebugConsole("Failed to write data.", "ERROR");
-  
+      setWritePlaceholder("Write failed.");
       if (error.response?.data?.message) {
         updateDebugConsole(`Server error: ${error.response.data.message}`, "ERROR");
       }
+    } finally {
+      clearInterval(intervalId);
+      setIsWritingBlock(false);
+      setWritePlaceholder("Write Data (16 bytes)");
     }
   };
+  
   
 
   return (
@@ -212,7 +279,7 @@ const RFIDSettings = () => {
         </div>
 
         <p className="mb-4 text-left">
-          Enter or view the Unique Identifier (UID) for the device.
+          Press the Scan RFID button to scan the Unique Identifier (UID) for the device.
         </p>
         <div className="w-full mb-6 grid grid-cols-3 gap-2 sm:gap-4 md:gap-8 lg:gap-12 text-sm sm:text-base lg:text-lg">
 
@@ -223,14 +290,15 @@ const RFIDSettings = () => {
               value={uid}
               disabled
               className="w-full border border-[#285082] p-2 rounded-md pl-4 sm:pl-6 md:pl-8 lg:pl-10"
-              placeholder="Unique Identifier (UID)"
+              placeholder={scanplaceholder}
             />
           </div>
 
           {/* Button */}
-          <button className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
-          hover:bg-[#285082] hover:text-white" onClick={handleScan}>
-            Scan
+          <button onClick={handleScan}disabled={isScanningUid}
+                  className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
+                  hover:bg-[#285082] hover:text-white">
+            {isScanningUid ? "Scanning..." : "Scan RFID"}
           </button>
 
         </div>
@@ -240,12 +308,16 @@ const RFIDSettings = () => {
         </p>
         <div className="w-full mb-6 grid grid-cols-3 gap-2 sm:gap-4 md:gap-8 lg:gap-12 text-sm sm:text-base lg:text-lg">
           
-          <div className="flex flex-row col-span-2 gap-2 sm:gap-4 md:gap-8 lg:gap-12 font-medium text-[#285082] text-center">
+          <div className="flex flex-row col-span-2 gap-2 md:gap-4 lg:gap-6 font-medium text-[#285082] text-center">
             
             {/* Combo Input */}
             <select
               value={selectedReadBlock}
-              onChange={(e) => setSelectedReadBlock(e.target.value)}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                setSelectedReadBlock(value);
+                updateDebugConsole(`Selected read block: ${value}`, "INFO");
+              }}
               className="border border-[#285082] p-2 rounded-md text-[#285082] font-medium"
             >
               {[4, 5, 6].map((block) => (
@@ -260,15 +332,16 @@ const RFIDSettings = () => {
               type="text"
               value={readData}
               disabled
-              className="w-full border border-[#285082] p-2 rounded-md pl-4 sm:pl-6 md:pl-8 lg:pl-10"
-              placeholder="Read Data (16 bytes)"
+              className="w-full border border-[#285082] p-2 pr-1 rounded-md pl-4 sm:pl-6 md:pl-8 lg:pl-10"
+              placeholder={readPlaceholder}
             />
           </div>
 
           {/* Button */}
-          <button className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
-          hover:bg-[#285082] hover:text-white" onClick={handleRead}>
-            Read Data
+          <button onClick={handleRead} disabled={isReadingBlock}
+          className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
+          hover:bg-[#285082] hover:text-white">
+            {isReadingBlock ? "Reading..." : "Read Data"}
           </button>
 
         </div>
@@ -278,13 +351,17 @@ const RFIDSettings = () => {
         </p>
         <div className="w-full mb-6 grid grid-cols-3 gap-2 sm:gap-4 md:gap-8 lg:gap-12 text-sm sm:text-base lg:text-lg">
 
-          <div className="flex flex-row col-span-2 gap-2 sm:gap-4 md:gap-8 lg:gap-12 font-medium text-[#285082] text-center">
+          <div className="flex flex-row col-span-2 gap-2 md:gap-4 lg:gap-6 font-medium text-[#285082] text-center">
             
             {/* Combo Input */}
             <select
               value={selectedWriteBlock}
-              onChange={(e) => setSelectedWriteBlock(e.target.value)}
-              className="border border-[#285082] p-2 rounded-md text-[#285082] font-medium"
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                setSelectedWriteBlock(value);
+                updateDebugConsole(`Selected write block: ${value}`, "INFO");
+              }}
+              className="border border-[#285082] p-2 pr-1 rounded-md text-[#285082] font-medium"
             >
               {[4, 5, 6].map((block) => (
                 <option key={block} value={block}>
@@ -298,15 +375,17 @@ const RFIDSettings = () => {
               type="text"
               value={writeData}
               onChange={(e) => setWriteData(e.target.value)}
+              maxLength={16}
               className="w-full border border-[#285082] p-2 rounded-md pl-4 sm:pl-6 md:pl-8 lg:pl-10"
-              placeholder="Write Data (16 bytes)"
+              placeholder={writePlaceholder}
             />
           </div>
 
           {/* Button */}
-          <button className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
-          hover:bg-[#285082] hover:text-white" onClick={handleWrite}>
-            Write Data
+          <button onClick={handleWrite} disabled={isWritingBlock}
+          className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
+          hover:bg-[#285082] hover:text-white">
+            {isWritingBlock ? "Writing..." : "Write Data"}
           </button>
         </div>
 
