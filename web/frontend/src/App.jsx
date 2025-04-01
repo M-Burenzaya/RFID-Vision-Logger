@@ -9,6 +9,8 @@ import UserLog from './pages/UserLog.jsx';
 import Help from './pages/Help.jsx';
 
 
+// To run the frontend:       cd RFID-Vision-Logger/web/frontend/ 
+//                            npm run dev
 
 function App() {
   return (
