@@ -12,15 +12,16 @@ import Help from './pages/Help.jsx';
 
 function App() {
   return (
-    <div className="max-w-8xl mx-auto px-8 flex flex-col">
+    <div className="max-w-8xl mx-auto px-0 md:px-8 flex flex-col">
       <BrowserRouter>
-        <div className="bg-white text-[#285082] shadow-sm relative h-full">
+
+        <div className="bg-white text-[#285082] shadow-sm relative min-h-screen">
 
           <div className="bg-white text-[#285082] py-4 shadow-md relative z-10">
             <Navbar />  
           </div>
 
-          <div className="basis-full">
+          <div className="">
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/rfid/*" element={<RFID />} />
@@ -31,6 +32,7 @@ function App() {
           </div>
 
         </div>
+
       </BrowserRouter>
     </div>
   );

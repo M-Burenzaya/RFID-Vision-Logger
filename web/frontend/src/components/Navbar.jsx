@@ -55,7 +55,7 @@ const Navbar = () => {
         </a>
 
         {/* Mobile: Current Page + Hamburger */}
-        <div className="md:hidden flex items-center gap-12 ">
+        <div className="md:hidden flex items-center gap-4 sm:gap-8 md:gap-12">
 
           <span className="text-lg font-medium">{currentPage}</span>
 

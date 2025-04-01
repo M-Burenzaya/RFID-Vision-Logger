@@ -10,7 +10,7 @@ const Vision = () => {
     <div className="px-6 sm:px-6 md:px-12 lg:px-18 xl:px-24 py-6">
 
       {/* Sub-navigation */}
-      <div className="flex justify-center gap-12 sm:gap-12 md:gap-16 lg:gap-20 xl:gap-24 border-b pb-2 mb-4">
+      <div className="flex justify-center gap-4 sm:gap-12 md:gap-16 lg:gap-20 xl:gap-24 border-b pb-2 mb-4">
         <TabLink to="add">Add User</TabLink>
         <TabLink to="list">User List</TabLink>
         <TabLink to="settings">Camera Settings</TabLink>
