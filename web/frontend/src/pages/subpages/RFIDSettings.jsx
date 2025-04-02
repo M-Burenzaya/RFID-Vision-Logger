@@ -246,18 +246,16 @@ const RFIDSettings = () => {
     }
   };
   
-  
-
   return (
-    <div className=" flex flex-col md:flex-row md:space-x-10 lg:space-x-15">
-      <div className=" flex flex-col w-full md:w-500 lg:w-800 mt-10">
+    <div className=" flex flex-col lg:flex-row md:space-x-6 lg:space-x-12">
+      <div className=" flex flex-col w-full lg:w-700 mt-4 lg:mt-8 ">
         <p className="mb-4 text-left">
           Click on Initialize to start the process and prepare the system for further actions.
           If you need to stop the current operation, press Halt. To restore the system to its default state, use the Reset button.
           Finally, if you're done and want to exit, click Close to end the session.
         </p>
 
-        <div className="w-full mb-6 grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 md:gap-8 lg:gap-12 text-base md:text-lg ">
+        <div className="w-full mb-6 grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 md:gap-6 lg:gap-8 text-base md:text-lg ">
 
           <button className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
           hover:bg-[#285082] hover:text-white" onClick={handleInitialize}>
@@ -281,9 +279,9 @@ const RFIDSettings = () => {
         <p className="mb-4 text-left">
           Press the Scan RFID button to scan the Unique Identifier (UID) for the device.
         </p>
-        <div className="w-full mb-6 grid grid-cols-3 gap-2 sm:gap-4 md:gap-8 lg:gap-12 text-sm sm:text-base lg:text-lg">
+        <div className="w-full mb-6 grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8 text-sm sm:text-base lg:text-lg">
 
-          <div className="flex flex-row col-span-2 gap-2 sm:gap-4 md:gap-8 lg:gap-12 font-medium text-[#285082] text-center">
+          <div className="flex flex-row col-span-2 gap-2 sm:gap-4 md:gap-6 lg:gap-8 text-[#285082] text-center">
             {/* Text Input */}
             <input
               type="text"
@@ -306,9 +304,9 @@ const RFIDSettings = () => {
         <p className="mb-4 text-left">
           Click to read the data associated with the UID.
         </p>
-        <div className="w-full mb-6 grid grid-cols-3 gap-2 sm:gap-4 md:gap-8 lg:gap-12 text-sm sm:text-base lg:text-lg">
+        <div className="w-full mb-6 grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8 text-sm sm:text-base lg:text-lg">
           
-          <div className="flex flex-row col-span-2 gap-2 md:gap-4 lg:gap-6 font-medium text-[#285082] text-center">
+          <div className="flex flex-row col-span-2 gap-2 md:gap-4 lg:gap-6 text-[#285082] text-center">
             
             {/* Combo Input */}
             <select
@@ -318,7 +316,7 @@ const RFIDSettings = () => {
                 setSelectedReadBlock(value);
                 updateDebugConsole(`Selected read block: ${value}`, "INFO");
               }}
-              className="border border-[#285082] p-2 rounded-md text-[#285082] font-medium"
+              className="border border-[#285082] p-2 rounded-md text-[#285082]"
             >
               {[4, 5, 6].map((block) => (
                 <option key={block} value={block}>
@@ -349,9 +347,9 @@ const RFIDSettings = () => {
         <p className="mb-4 text-left">
           Write data (16 bytes) to the device associated with the UID.
         </p>
-        <div className="w-full mb-6 grid grid-cols-3 gap-2 sm:gap-4 md:gap-8 lg:gap-12 text-sm sm:text-base lg:text-lg">
+        <div className="w-full mb-4 lg:mb-8 grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8 text-sm sm:text-base lg:text-lg">
 
-          <div className="flex flex-row col-span-2 gap-2 md:gap-4 lg:gap-6 font-medium text-[#285082] text-center">
+          <div className="flex flex-row col-span-2 gap-2 md:gap-4 lg:gap-6 text-[#285082] text-center">
             
             {/* Combo Input */}
             <select
@@ -361,7 +359,7 @@ const RFIDSettings = () => {
                 setSelectedWriteBlock(value);
                 updateDebugConsole(`Selected write block: ${value}`, "INFO");
               }}
-              className="border border-[#285082] p-2 pr-1 rounded-md text-[#285082] font-medium"
+              className="border border-[#285082] p-2 pr-1 rounded-md text-[#285082]"
             >
               {[4, 5, 6].map((block) => (
                 <option key={block} value={block}>
@@ -391,13 +389,13 @@ const RFIDSettings = () => {
 
       </div>
 
-      <div className=' w-full  mt-10 flex flex-col flex-grow'>
+      <div className=' w-full  mt-4 lg:mt-8 flex flex-col flex-grow'>
 
-        <p className="mb-4 text-left">
+        {/* <p className="mb-4 text-left">
           View system logs and debug information in this section.
-        </p>
+        </p> */}
 
-        <div className="bg-gray-800 text-white p-4 rounded-md h-full mb-6 ">
+        <div className="bg-gray-800 text-white p-4 rounded-md h-full mb-4 lg:mb-8">
 
           <h3 className="text-lg font-semibold mb-2">Debug Console</h3>
 
