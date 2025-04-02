@@ -14,9 +14,11 @@ const VisionSettings = () => {
     if (debugRef.current) {
       debugRef.current.scrollTop = debugRef.current.scrollHeight;
     }
-    // Fetch camera image on component mount
-    fetchCameraImage();
-  }, []);
+  }, [debugConsole]);
+
+  useEffect(() => {
+    console.log("Image Src: ", imageSrc);  // Log the imageSrc to verify
+  }, [imageSrc]);
 
   const updateDebugConsole = (message, level = "INFO") => {
     const prefix = {
@@ -28,10 +30,35 @@ const VisionSettings = () => {
     setDebugConsole((prev) => [...prev, prefix + message]);
   };
 
+  // Trigger Once function
   const triggerOnce = async () => {
-    // Call API or logic to trigger a single detection
-    updateDebugConsole("Triggered once.");
+    try {
+      updateDebugConsole("Triggering action...");
+  
+      // Call the backend to trigger the action (capture image)
+      const response = await api.post("/triggerOnce");
+  
+      if (response.status === 200) {
+        // Success: Action was triggered successfully
+        updateDebugConsole("Action triggered successfully!", "SUCCESS");
+  
+        // Get the image URL from the response
+        const imageUrl = response.data.image_url || "/default-placeholder.png";
+        updateDebugConsole(`${imageUrl}`, "INFO");
+  
+        // Display the captured image in the UI
+        setImageSrc(imageUrl);                   // Display the captured image
+
+      } else {
+        // Failure: Return error from backend
+        updateDebugConsole(`Error: ${response.data.message}`, "ERROR");
+      }
+    } catch (error) {
+      // Network errors or exceptions
+      updateDebugConsole(`Error occurred while triggering action: ${error.message}`, "ERROR");
+    }
   };
+  
 
   const triggerContinuous = async () => {
     // Call API or logic to trigger continuous detection
@@ -61,7 +88,7 @@ const VisionSettings = () => {
           {/* Image display */}
           <div className="flex justify-center">
             <img 
-              src={imageSrc || "default-placeholder.png"} 
+              src={imageSrc ? `http://localhost:8000${imageSrc}?t=${new Date().getTime()}` : "/static/default-placeholder.png"} 
               alt="Camera" 
               className="w-full h-auto aspect-square object-cover"
             />

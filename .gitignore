@@ -19,3 +19,5 @@ bin-release/
 
 
 *.pyc
+*.api
+*.env
