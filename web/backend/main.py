@@ -1,10 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, BackgroundTasks, Request, WebSocket, Response
+from fastapi.responses import StreamingResponse 
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.responses import FileResponse
-from fastapi import Request
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+import asyncio
 
 import sys
 import os
@@ -16,8 +16,10 @@ import cv2
 
 # To run the backend:       cd RFID-Vision-Logger/web/backend/ 
 #                           uvicorn main:app --reload
-
+# Store the image capture counter (initially set to 0)
+image_capture_counter = 0
 # Add the src directory to the Python path
+is_continuous_capture = False
 
 reader = RFIDReader()
 camera = CameraReader()
@@ -216,13 +218,14 @@ def trigger_once():
 
         if image is None:
             raise Exception("Failed to capture image.")
+        
+        temp_image_path = os.path.join(image_directory, "temp.jpg")
+        cv2.imwrite(temp_image_path, image)  # Save as temp.jpg
 
-        # Save the captured image in the 'captured_images' directory
-        image_path = os.path.join(image_directory, "captured_image.jpg")
-        cv2.imwrite(image_path, image)  # Save the image as a file
+        final_image_path = os.path.join(image_directory, "captured_image.jpg")
+        os.rename(temp_image_path, final_image_path)  # Rename file
 
-        # Return the image URL to be used in the frontend
-        image_url = f"/static/{os.path.basename(image_path)}"  # Serving the image through FastAPI static files
+        image_url = f"/static/{os.path.basename(final_image_path)}" 
         return {"message": "Action triggered successfully!", "image_url": image_url}
 
     except Exception as e:
@@ -237,9 +240,80 @@ app.mount("/static", StaticFiles(directory=image_directory), name="static")
 
 @app.get("/static/{image_name}")
 async def get_image(image_name: str):
-    image_path = os.path.join("path_to_images", image_name)  # Ensure this path is correct
+    image_path = os.path.join(image_directory, image_name)  # Ensure this path is correct
     print(f"Serving image from: {image_path}")  # Print the image path for debugging
     if os.path.exists(image_path):
         return FileResponse(image_path)
     else:
         return JSONResponse(status_code=404, content={"message": "Image not found"})
+
+
+
+
+
+
+
+
+@app.post("/startContinuous")
+async def start_continuous_capture(background_tasks: BackgroundTasks):
+    """Starts continuous image capture and streams to the frontend."""
+    global is_continuous_capture
+    is_continuous_capture = True  # Set flag to start capture
+
+    # Start the image capture in the background
+    background_tasks.add_task(generate_frames)
+    print("[INFO] Continuous capture started.")
+
+    return {"message": "Continuous capture started."}
+
+@app.post("/stopContinuous")
+async def stop_continuous_capture():
+    """Stops continuous image capture."""
+    global is_continuous_capture
+    is_continuous_capture = False  # Set flag to stop capture
+    print("[INFO] Continuous capture stopped.")
+
+    return {"message": "Continuous capture stopped."}
+
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        # Capture the frame
+        image = camera.capture_array()
+        if image is not None:
+            ret, buffer = cv2.imencode('.jpg', image)  # Encode the frame as JPEG
+            if not ret:
+                break
+            frame_bytes = buffer.tobytes()
+
+            try:
+                # Send the frame over WebSocket
+                await websocket.send_bytes(frame_bytes)
+            except Exception as e:
+                print(f"Error sending frame: {e}")
+                break
+
+            await asyncio.sleep(1 / 30)  # 30 FPS
+
+@app.get("/video_feed")
+async def video_feed():
+    """Stream video frames."""
+    return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+async def generate_frames():
+    """Generate frames for the video stream."""
+    while is_continuous_capture:
+        image = camera.capture_image()
+        if image is not None:
+            ret, buffer = cv2.imencode('.jpg', image)
+            if not ret:
+                break
+            frame_bytes = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
+        await asyncio.sleep(1 / 30)
+            

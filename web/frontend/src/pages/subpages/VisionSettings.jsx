@@ -9,6 +9,27 @@ const VisionSettings = () => {
   const [imageSrc, setImageSrc] = useState("");  // Placeholder for image display
   const [debugConsole, setDebugConsole] = useState([]);
   const debugRef = useRef(null);
+  const [isContinuousTrigger, setIsContinuousTrigger] = useState(false); // Track continuous trigger state
+  
+  const socket = new WebSocket("ws://localhost:8000/ws");
+
+    socket.onopen = () => {
+      console.log("WebSocket connected.");
+    };
+
+    socket.onmessage = (event) => {
+      const blob = event.data;
+      const url = URL.createObjectURL(blob);
+      document.getElementById('video').src = url;
+    };
+
+    socket.onerror = (error) => {
+      console.log("WebSocket Error:", error);
+    };
+
+    socket.onclose = () => {
+      console.log("WebSocket connection closed.");
+    };
 
   useEffect(() => {
     if (debugRef.current) {
@@ -61,20 +82,39 @@ const VisionSettings = () => {
   
 
   const triggerContinuous = async () => {
-    // Call API or logic to trigger continuous detection
-    updateDebugConsole("Continuous trigger started.");
-  };
-
-  const fetchCameraImage = async () => {
-    // Fetch the camera image (replace with your API or image source)
-    try {
-      const response = await api.get("/camera");
-      setImageSrc(response.data.imageUrl);
-      updateDebugConsole("Camera image fetched.", "SUCCESS");
-    } catch (error) {
-      updateDebugConsole("Failed to fetch camera image.", "ERROR");
+    setIsContinuousTrigger((prevState) => !prevState); // Toggle state
+    
+    if (!isContinuousTrigger) {
+      // Start continuous capture
+      updateDebugConsole("Starting continuous capture...");
+      
+      try {
+        const response = await api.post("/startContinuous");  // Call the backend to start continuous capture
+        if (response.status === 200) {
+          updateDebugConsole("Continuous capture started.", "SUCCESS");
+        } else {
+          updateDebugConsole(response.data.message, "ERROR");
+        }
+      } catch (error) {
+        updateDebugConsole(`Error occurred while starting continuous capture: ${error.message}`, "ERROR");
+      }
+    } else {
+      // Stop continuous capture
+      updateDebugConsole("Stopping continuous capture...");
+  
+      try {
+        const response = await api.post("/stopContinuous");  // Call the backend to stop continuous capture
+        if (response.status === 200) {
+          updateDebugConsole("Continuous capture stopped.", "SUCCESS");
+        } else {
+          updateDebugConsole(response.data.message, "ERROR");
+        }
+      } catch (error) {
+        updateDebugConsole(`Error occurred while stopping continuous capture: ${error.message}`, "ERROR");
+      }
     }
   };
+  
 
   const handleFeatureToggle = () => {
     setShowFeatures(!showFeatures);
@@ -88,8 +128,10 @@ const VisionSettings = () => {
           {/* Image display */}
           <div className="flex justify-center">
             <img 
-              src={imageSrc ? `http://localhost:8000${imageSrc}?t=${new Date().getTime()}` : "/static/default-placeholder.png"} 
-              alt="Camera" 
+              // src={imageSrc ? `http://localhost:8000${imageSrc}?t=${new Date().getTime()}` : "/static/default-placeholder.png"} 
+              // alt="Camera" 
+              src={`http://localhost:8000/video_feed?t=${new Date().getTime()}`}
+              alt="Live stream"
               className="w-full h-auto aspect-square object-cover"
             />
           </div>
@@ -105,8 +147,11 @@ const VisionSettings = () => {
             <button onClick={triggerOnce} className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer hover:bg-[#285082] hover:text-white">
               Trigger Once
             </button>
-            <button onClick={triggerContinuous} className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer hover:bg-[#285082] hover:text-white">
-              Continuous Trigger
+            <button onClick={triggerContinuous} className={classNames("p-2 border rounded-md text-xl", {
+                'bg-[#285082] text-white hover:bg-[#1f407a]': isContinuousTrigger,
+                'bg-white text-[#285082] hover:bg-[#f0f8ff]': !isContinuousTrigger
+              })}>
+              {isContinuousTrigger ? "Stop Continuous" : "Start Continuous"}
             </button>
           </div>
 
@@ -117,7 +162,7 @@ const VisionSettings = () => {
               <button
                   onClick={handleFeatureToggle}
                   className={classNames(
-                    'w-30 h-full text-xl font-semibold border rounded-md flex items-center justify-center',
+                    'w-30 h-full text-xl border rounded-md flex items-center justify-center',
                     {
                       'bg-[#285082] text-white hover:bg-[#1f407a]': showFeatures,
                       'bg-white text-[#285082] hover:bg-[#f0f8ff]': !showFeatures,
