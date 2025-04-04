@@ -74,6 +74,10 @@ const RFIDSettings = () => {
     setUid("");  // <--- reset UID
     setReadData("");  // <--- reset read data
     setWriteData("");  // <--- reset write data
+    setScanPlaceholder("Unique Identifier (UID)");
+    setReadPlaceholder("Read Data (16 bytes)");
+    setWritePlaceholder("Write Data (16 bytes)");
+
     try {
       const response = await api.post("/reset");
       updateDebugConsole("Request sent.", "SUCCESS");
@@ -95,6 +99,10 @@ const RFIDSettings = () => {
     setUid("");  // <--- reset UID
     setReadData("");  // <--- reset read data
     setWriteData("");  // <--- reset write data
+    setScanPlaceholder("Unique Identifier (UID)");
+    setReadPlaceholder("Read Data (16 bytes)");
+    setWritePlaceholder("Write Data (16 bytes)");
+
     try {
       const response = await api.post("/close");
       updateDebugConsole("Request sent.", "SUCCESS");

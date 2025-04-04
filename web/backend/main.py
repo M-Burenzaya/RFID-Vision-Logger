@@ -72,7 +72,10 @@ def initialize_rfid():
     try:
         success, error = reader.initialize_rfid()
         if success:
-            return {"message": "RFID reader initialized."}
+            return JSONResponse(
+                status_code=200,
+                content={"message": "RFID reader initialized."}
+            )
         else:
             return JSONResponse(
                 status_code=500,
@@ -91,7 +94,10 @@ def halt_rfid():
     try:
         success, error = reader.halt_rfid()
         if success:
-            return {"message": "Communication halted."}
+            return JSONResponse(
+                status_code=200,
+                content={"message": "Communication halted."}
+            )
         else:
             return JSONResponse(
                 status_code=500,
