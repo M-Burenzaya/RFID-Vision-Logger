@@ -258,19 +258,19 @@ const RFIDSettings = () => {
         <div className="w-full mb-6 grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 md:gap-6 lg:gap-8 text-base md:text-lg ">
 
           <button className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
-          hover:bg-[#285082] hover:text-white" onClick={handleInitialize}>
+          hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white" onClick={handleInitialize}>
             Initialize
           </button>
           <button className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
-          hover:bg-[#285082] hover:text-white" onClick={handleHalt}>
+          hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white" onClick={handleHalt}>
             Halt
           </button>
           <button className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
-          hover:bg-[#285082] hover:text-white" onClick={handleReset}>
+          hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white" onClick={handleReset}>
             Reset
           </button>
           <button className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
-          hover:bg-[#285082] hover:text-white" onClick={handleClose}>
+          hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white" onClick={handleClose}>
             Close
           </button>
 
@@ -295,7 +295,7 @@ const RFIDSettings = () => {
           {/* Button */}
           <button onClick={handleScan}disabled={isScanningUid}
                   className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
-                  hover:bg-[#285082] hover:text-white">
+                  hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white">
             {isScanningUid ? "Scanning..." : "Scan RFID"}
           </button>
 
@@ -338,7 +338,7 @@ const RFIDSettings = () => {
           {/* Button */}
           <button onClick={handleRead} disabled={isReadingBlock}
           className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
-          hover:bg-[#285082] hover:text-white">
+          hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white">
             {isReadingBlock ? "Reading..." : "Read Data"}
           </button>
 
@@ -382,7 +382,7 @@ const RFIDSettings = () => {
           {/* Button */}
           <button onClick={handleWrite} disabled={isWritingBlock}
           className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
-          hover:bg-[#285082] hover:text-white">
+          hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white">
             {isWritingBlock ? "Writing..." : "Write Data"}
           </button>
         </div>

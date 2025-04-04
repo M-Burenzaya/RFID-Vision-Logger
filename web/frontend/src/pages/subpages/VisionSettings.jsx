@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, use } from 'react';
 import classNames from 'classnames';
 import api from "../../api";
 
@@ -6,40 +6,76 @@ const VisionSettings = () => {
   const [detectionName, setDetectionName] = useState("");
   const [detectionPercent, setDetectionPercent] = useState(0);
   const [showFeatures, setShowFeatures] = useState(false);
-  const [imageSrc, setImageSrc] = useState("");  // Placeholder for image display
+  const [imageSrc, setImageSrc] = useState(null);  // Placeholder for image display
   const [debugConsole, setDebugConsole] = useState([]);
   const debugRef = useRef(null);
   const [isContinuousTrigger, setIsContinuousTrigger] = useState(false); // Track continuous trigger state
   
-  const socket = new WebSocket("ws://localhost:8000/ws");
+  const [message, setMessage] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState("Disconnected");
+  const [ws, setWs] = useState(null);
 
-    socket.onopen = () => {
-      console.log("WebSocket connected.");
-    };
+  const placeholderImage = "/default-placeholder.png";
 
-    socket.onmessage = (event) => {
-      const blob = event.data;
-      const url = URL.createObjectURL(blob);
-      document.getElementById('video').src = url;
-    };
 
-    socket.onerror = (error) => {
-      console.log("WebSocket Error:", error);
-    };
+  // Establish WebSocket connection
+  useEffect(() => {
+    const timer = setTimeout(() => {
 
-    socket.onclose = () => {
-      console.log("WebSocket connection closed.");
-    };
+      const socket = new WebSocket("ws://localhost:8000/ws");
+
+      // Hope this handle open event
+      socket.onopen = () => {
+        setConnectionStatus("Connected");
+        console.log("WebSocket connected using custom function yay!!!");
+        console.log(imageSrc);
+      };
+
+      // When a message is received
+      socket.onmessage = (event) => {
+        const blob = event.data;  // The data received is a Blob object
+        // console.log("Received Blob:", blob);
+        const url = URL.createObjectURL(blob);  // Create a URL for the Blob
+        setImageSrc(url);  // Set the image URL for displaying it
+        // console.log("Image received and displayed.");
+
+        console.log(url);
+
+        // setTimeout(() => {
+        //   URL.revokeObjectURL(url);  // Free memory used by the previous URL
+        // }, 1000);
+      };
+
+      // When an error occurs
+      socket.onerror = (error) => {
+        console.error("WebSocket Error:", error);
+      };
+
+      // Hope this close websocket
+      socket.onclose = () => {
+        setConnectionStatus("Disconnected");
+        console.log("WebSocket connection closed.");
+      };
+
+      // Set WebSocket instance in state
+      setWs(socket);
+
+      // Cleanup: Close WebSocket connection when component unmounts
+      return () => {
+        if (socket) {
+          socket.close();  // Close the WebSocket connection on component unmount
+        }
+      };
+    }, 500);
+    return () => clearTimeout(timer);
+
+  }, []);
 
   useEffect(() => {
     if (debugRef.current) {
       debugRef.current.scrollTop = debugRef.current.scrollHeight;
     }
   }, [debugConsole]);
-
-  useEffect(() => {
-    console.log("Image Src: ", imageSrc);  // Log the imageSrc to verify
-  }, [imageSrc]);
 
   const updateDebugConsole = (message, level = "INFO") => {
     const prefix = {
@@ -60,15 +96,9 @@ const VisionSettings = () => {
       const response = await api.post("/triggerOnce");
   
       if (response.status === 200) {
+        setIsContinuousTrigger(false);
         // Success: Action was triggered successfully
         updateDebugConsole("Action triggered successfully!", "SUCCESS");
-  
-        // Get the image URL from the response
-        const imageUrl = response.data.image_url || "/default-placeholder.png";
-        updateDebugConsole(`${imageUrl}`, "INFO");
-  
-        // Display the captured image in the UI
-        setImageSrc(imageUrl);                   // Display the captured image
 
       } else {
         // Failure: Return error from backend
@@ -128,11 +158,9 @@ const VisionSettings = () => {
           {/* Image display */}
           <div className="flex justify-center">
             <img 
-              // src={imageSrc ? `http://localhost:8000${imageSrc}?t=${new Date().getTime()}` : "/static/default-placeholder.png"} 
-              // alt="Camera" 
-              src={`http://localhost:8000/video_feed?t=${new Date().getTime()}`}
-              alt="Live stream"
-              className="w-full h-auto aspect-square object-cover"
+              src={imageSrc || placeholderImage} 
+              alt="Received from server" 
+              className="w-full h-auto aspect-square object-cover" 
             />
           </div>
         </div>
@@ -144,7 +172,7 @@ const VisionSettings = () => {
         <div className="w-full mb-4">
 
           <div className="w-full mb-4 grid grid-cols-2 lg:grid-cols-[repeat(auto-fit,_minmax(200px,_1fr))] gap-2 sm:gap-4 md:gap-6 lg:gap-4 text-base md:text-lg">
-            <button onClick={triggerOnce} className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer hover:bg-[#285082] hover:text-white">
+            <button onClick={triggerOnce} className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white">
               Trigger Once
             </button>
             <button onClick={triggerContinuous} className={classNames("p-2 border rounded-md text-xl", {

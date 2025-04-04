@@ -1,5 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks, Request, WebSocket, Response
-from fastapi.responses import StreamingResponse 
+from fastapi import FastAPI, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -21,18 +20,22 @@ image_capture_counter = 0
 # Add the src directory to the Python path
 is_continuous_capture = False
 
+connected_ws = None
+
 reader = RFIDReader()
 camera = CameraReader()
 app = FastAPI()
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 image_directory = os.path.join(current_dir, "images")
-os.makedirs(image_directory, exist_ok=True) 
+os.makedirs(image_directory, exist_ok=True)
+image_path = os.path.join(image_directory, "captured_image.jpg")
 
 # Allow React frontend (adjust origin if needed)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],  # For production, change to the frontend URL like: ["http://localhost:5173"]
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -210,7 +213,9 @@ def initialize_rfid():
         )
 
 @app.post("/triggerOnce")
-def trigger_once():
+async def trigger_once():
+    global is_continuous_capture
+    is_continuous_capture = False
     """Handles the trigger action when the frontend clicks 'Trigger Once'"""
     try:
         # Capture the image using the CameraReader
@@ -219,15 +224,21 @@ def trigger_once():
         if image is None:
             raise Exception("Failed to capture image.")
         
-        temp_image_path = os.path.join(image_directory, "temp.jpg")
-        cv2.imwrite(temp_image_path, image)  # Save as temp.jpg
+        # Convert the image to bytes (as a Blob)
+        _, img_encoded = cv2.imencode('.jpg', image)
+        img_bytes = img_encoded.tobytes()
 
-        final_image_path = os.path.join(image_directory, "captured_image.jpg")
-        os.rename(temp_image_path, final_image_path)  # Rename file
-
-        image_url = f"/static/{os.path.basename(final_image_path)}" 
-        return {"message": "Action triggered successfully!", "image_url": image_url}
-
+        # Check if WebSocket connection is established
+        if connected_ws:
+            # Send the image as Blob (binary data) over WebSocket
+            await connected_ws.send_bytes(img_bytes)  # Send image as Blob to the frontend
+            return {"message": "Image sent successfully over WebSocket."}
+        else:
+            # If no WebSocket connection, handle the case where no connection exists
+            return JSONResponse(
+                status_code=400,
+                content={"message": "WebSocket connection not established."}
+            )
     except Exception as e:
         # Handle exceptions and return an appropriate error code
         return JSONResponse(
@@ -235,85 +246,69 @@ def trigger_once():
             content={"message": f"An error occurred while triggering: {str(e)}"}
         )
 
-# Serve static files (images) from the 'captured_images' directory
-app.mount("/static", StaticFiles(directory=image_directory), name="static")
-
-@app.get("/static/{image_name}")
-async def get_image(image_name: str):
-    image_path = os.path.join(image_directory, image_name)  # Ensure this path is correct
-    print(f"Serving image from: {image_path}")  # Print the image path for debugging
-    if os.path.exists(image_path):
-        return FileResponse(image_path)
-    else:
-        return JSONResponse(status_code=404, content={"message": "Image not found"})
-
-
-
-
-
-
-
 
 @app.post("/startContinuous")
 async def start_continuous_capture(background_tasks: BackgroundTasks):
-    """Starts continuous image capture and streams to the frontend."""
+    
     global is_continuous_capture
     is_continuous_capture = True  # Set flag to start capture
 
-    # Start the image capture in the background
-    background_tasks.add_task(generate_frames)
-    print("[INFO] Continuous capture started.")
+    background_tasks.add_task(continuous_capture)
+
+    # print("Starting continuous capture...")
 
     return {"message": "Continuous capture started."}
 
 @app.post("/stopContinuous")
 async def stop_continuous_capture():
-    """Stops continuous image capture."""
+    
     global is_continuous_capture
     is_continuous_capture = False  # Set flag to stop capture
-    print("[INFO] Continuous capture stopped.")
+
+    # print("Stopping continuous capture...")
 
     return {"message": "Continuous capture stopped."}
 
+async def continuous_capture():
+    """Function that continuously captures and sends images."""
+    while is_continuous_capture:
+        try:
+            # Capture the image using the CameraReader
+            image = camera.capture_image()
+
+            if image is None:
+                raise Exception("Failed to capture image.")
+            
+            # Convert the image to bytes (as a Blob)
+            _, img_encoded = cv2.imencode('.jpg', image)
+            img_bytes = img_encoded.tobytes()
+
+            # Check if WebSocket connection is established
+            if connected_ws:
+                # Send the image as Blob (binary data) over WebSocket
+                await connected_ws.send_bytes(img_bytes)  # Send image as Blob to the frontend
+            else:
+                # If no WebSocket connection, handle the case where no connection exists
+                print("WebSocket connection not established. Skipping image sending.")
+        except Exception as e:
+            # Handle exceptions and return an appropriate error code
+            print(f"Error occurred while capturing or sending image: {str(e)}")
+
+
+        # Sleep for a short duration before capturing the next image
+        await asyncio.sleep(1 / 30)  # Capture an image every second (adjust as needed)
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    global connected_ws  # Use the global variable
     await websocket.accept()
-    while True:
-        # Capture the frame
-        image = camera.capture_array()
-        if image is not None:
-            ret, buffer = cv2.imencode('.jpg', image)  # Encode the frame as JPEG
-            if not ret:
-                break
-            frame_bytes = buffer.tobytes()
+    connected_ws = websocket  # Store the WebSocket connection
 
-            try:
-                # Send the frame over WebSocket
-                await websocket.send_bytes(frame_bytes)
-            except Exception as e:
-                print(f"Error sending frame: {e}")
-                break
-
-            await asyncio.sleep(1 / 30)  # 30 FPS
-
-@app.get("/video_feed")
-async def video_feed():
-    """Stream video frames."""
-    return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
-
-async def generate_frames():
-    """Generate frames for the video stream."""
-    while is_continuous_capture:
-        image = camera.capture_image()
-        if image is not None:
-            ret, buffer = cv2.imencode('.jpg', image)
-            if not ret:
-                break
-            frame_bytes = buffer.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-
-        await asyncio.sleep(1 / 30)
-            
+    try:
+        while True:
+            # Keep the connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        print("Client disconnected")
+        connected_ws = None  # Reset the WebSocket connection when disconnected

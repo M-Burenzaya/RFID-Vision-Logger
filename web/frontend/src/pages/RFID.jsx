@@ -11,7 +11,7 @@ const RFID = () => {
 
       {/* Sub-navigation */}
       <div className="flex justify-center gap-4 sm:gap-12 md:gap-16 lg:gap-20 xl:gap-24 border-b pb-2 mb-4">
-        <TabLink to="add">Add UID</TabLink>
+        <TabLink to="add">Add or edit</TabLink>
         <TabLink to="list">UID List</TabLink>
         <TabLink to="settings">RFID Settings</TabLink>
       </div>
