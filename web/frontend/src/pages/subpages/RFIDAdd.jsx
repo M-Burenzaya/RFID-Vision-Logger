@@ -2,6 +2,12 @@ import React, { useState, useEffect, useRef, use } from 'react';
 import { Link } from "react-router-dom";
 import api from "../../api";
 
+import {
+  DragDropContext,
+  Droppable,
+  Draggable
+} from "@hello-pangea/dnd";
+
 import { useRFID } from "../../App"; // or "../../App" depending on path
 
 const RFIDAdd = () => {
@@ -118,6 +124,30 @@ const RFIDAdd = () => {
     }
   };
 
+//----------------------------------------------------------------------------------------------
+
+  const handleAddItem = () => {
+    if (newItem.trim()) {
+      setItems([...items, newItem.trim()]);
+      setNewItem("");
+    }
+  };
+
+  const handleDeleteItem = (index) => {
+    const updated = [...items];
+    updated.splice(index, 1);
+    setItems(updated);
+  };
+
+  const handleDragEnd = (result) => {
+    if (!result.destination) return;
+    const reordered = Array.from(items);
+    const [moved] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, moved);
+    setItems(reordered);
+  };
+
+
   const handleDiscard = (e) => {
     e.preventDefault();
     setBoxName("");
@@ -149,7 +179,11 @@ const RFIDAdd = () => {
     <div>
       {!isReadyToScan && (
         <div className="flex flex-col items-center justify-center h-[60vh] text-center text-[#285082]">
-        <div className="text-9xl mb-4">⚠️</div>
+        <img
+          src="/Warning_icon.png"
+          alt="Warning Icon"
+          className="w-50 h-auto mb-4"
+        />
         <h3 className="text-3xl font-bold mb-2">RFID Reader Initialization Failed</h3>
         <p className="text-lg max-w-md">
           Please go to the{" "}
@@ -163,32 +197,89 @@ const RFIDAdd = () => {
 
       {isReadyToScan && !isScanned && (
         <div className="flex flex-col items-center justify-center h-[60vh] text-center text-[#285082]">
-          <div className="text-8xl mb-4 animate-pulse">📡</div>
+          <img
+            src="/RFID_icon.png"
+            alt="RFID Icon"
+            className="w-50 h-auto mb-4"
+          />
           <h3 className="text-3xl font-bold mb-2">Waiting for RFID Scan...</h3>
           <p className="text-lg max-w-md">Please scan your RFID tag to continue.</p>
         </div>
       )}
 
       {isReadyToScan && isScanned && (
-        <div>
-          <h3>✅ RFID Scanned</h3>
-          <p>UID: {uid}</p>
+        <div style={{ maxWidth: "600px", margin: "auto" }}>
+        <h3>✅ RFID Scanned</h3>
+        <p>UID: {uid}</p>
 
-          {/* If UID is found in the database, show existing data */}
-          
-          <form>
-            <label>Box Name</label>
-            <input type="text" value={boxName} onChange={handleBoxNameChange} />
+        <form>
+          <label>Box Name</label>
+          <input
+            type="text"
+            value={boxName}
+            onChange={handleBoxNameChange}
+            className="w-full border p-2 mb-4"
+          />
 
-            <label>Items Inside</label>
-            <textarea value={items} onChange={handleItemsChange}></textarea>
+          <label>Items Inside</label>
+          <div style={{ display: "flex", marginBottom: "1rem" }}>
+            <input
+              type="text"
+              placeholder="Add item"
+              value={newItem}
+              onChange={(e) => setNewItem(e.target.value)}
+              style={{ flex: 1, marginRight: "0.5rem" }}
+            />
+            <button type="button" onClick={handleAddItem}>Add</button>
+          </div>
 
-            <button onClick={handleDiscard}>Discard Changes</button>
-            <button onClick={handleSave}>Save to Database</button>
-          </form>
+          <DragDropContext onDragEnd={handleDragEnd}>
+            <Droppable droppableId="itemList">
+              {(provided) => (
+                <ul
+                  {...provided.droppableProps}
+                  ref={provided.innerRef}
+                  style={{ padding: 0, listStyle: "none" }}
+                >
+                  {items.map((item, index) => (
+                    <Draggable key={item + index} draggableId={item + index} index={index}>
+                      {(provided) => (
+                        <li
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          style={{
+                            ...provided.draggableProps.style,
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "0.5rem",
+                            marginBottom: "0.5rem",
+                            border: "1px solid #ccc",
+                            borderRadius: "4px",
+                            backgroundColor: "#f9f9f9"
+                          }}
+                        >
+                          <span>{item}</span>
+                          <button type="button" onClick={() => handleDeleteItem(index)}>❌</button>
+                        </li>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </ul>
+              )}
+            </Droppable>
+          </DragDropContext>
 
-          
-        </div>
+          <button onClick={handleDiscard} type="button" className="mr-4 mt-4">
+            Discard Changes
+          </button>
+          <button onClick={handleSave} type="submit" className="mt-4">
+            Save to Database
+          </button>
+        </form>
+      </div>
       )}
 
       <div style={{ marginTop: "2rem" }}>
