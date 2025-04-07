@@ -16,6 +16,19 @@ from sqlalchemy.orm import Session
 from models import RfidBox, Item  # These are the models you created
 from database import SessionLocal, init_db
 
+from pydantic import BaseModel
+from typing import List
+
+class ItemCreate(BaseModel):
+    item_name: str
+    item_description: str
+    quantity: int
+
+class RfidBoxCreate(BaseModel):
+    uid: str
+    box_name: str
+    items: List[ItemCreate]
+
 
 import cv2
 
@@ -84,13 +97,38 @@ def get_db():
         db.close()
 
 # Route to create a new RFID box
+
 @app.post("/rfid-box/")
-def create_rfid_box(uid: str, box_name: str, db: Session = Depends(get_db)):
-    db_rfid_box = RfidBox(uid=uid, box_name=box_name)
-    db.add(db_rfid_box)
+def create_rfid_box(data: RfidBoxCreate, db: Session = Depends(get_db)):
+    # Check for duplicate UID
+    existing = db.query(RfidBox).filter(RfidBox.uid == data.uid).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="RFID UID already exists.")
+
+    # Create new box
+    new_box = RfidBox(uid=data.uid, box_name=data.box_name)
+    db.add(new_box)
     db.commit()
-    db.refresh(db_rfid_box)
-    return db_rfid_box
+    db.refresh(new_box)
+
+    # Add items to that box
+    for item in data.items:
+        db_item = Item(
+            item_name=item.item_name,
+            item_description=item.item_description,
+            quantity=item.quantity,
+            rfid_box_id=new_box.id
+        )
+        db.add(db_item)
+
+    db.commit()
+
+    return {
+        "message": "Box and items saved successfully.",
+        "box_id": new_box.id,
+        "uid": new_box.uid
+    }
+
 
 # Route to add an item to a box
 @app.post("/add-item/")
