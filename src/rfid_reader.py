@@ -54,25 +54,35 @@ class RFIDReader:
             # print(f"[ERROR] Failed to close RFID reader: {e}")
             return False, str(e)
 
-    def scan_rfid(self):
-        """Scan for an RFID card for up to 5 seconds."""
+    def scan_rfid(self, continuous=False):
+        """Scan for an RFID card. If continuous=True, keep scanning until a card is found."""
         try:
-            timeout = 5  # seconds
-            start_time = time.time()
-
-            while time.time() - start_time < timeout:
-                status, tag_type = self.MIFAREReader.MFRC522_Request(self.MIFAREReader.PICC_REQIDL)
-                if status == self.MIFAREReader.MI_OK:
-                    status, uid = self.MIFAREReader.MFRC522_Anticoll()
+            if continuous:
+                while True:
+                    status, tag_type = self.MIFAREReader.MFRC522_Request(self.MIFAREReader.PICC_REQIDL)
                     if status == self.MIFAREReader.MI_OK:
-                        uid_str = "-".join(map(str, uid))  # Convert UID to string
-                        return True, {"uid": uid_str}
-                time.sleep(0.1)  # avoid overloading CPU
-
-            return False, "Timeout: No RFID card detected within 5 seconds."
+                        status, uid = self.MIFAREReader.MFRC522_Anticoll()
+                        if status == self.MIFAREReader.MI_OK:
+                            uid_str = "-".join(map(str, uid))
+                            return True, {"uid": uid_str}
+                    time.sleep(0.1)
+            else:
+                timeout = 5  # seconds
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    status, tag_type = self.MIFAREReader.MFRC522_Request(self.MIFAREReader.PICC_REQIDL)
+                    if status == self.MIFAREReader.MI_OK:
+                        status, uid = self.MIFAREReader.MFRC522_Anticoll()
+                        if status == self.MIFAREReader.MI_OK:
+                            uid_str = "-".join(map(str, uid))
+                            return True, {"uid": uid_str}
+                    time.sleep(0.1)
+                return False, "Timeout: No RFID card detected within 5 seconds."
         except Exception as e:
             return False, str(e)
 
+        
+        
 
     def read_rfid(self, block, key=[0xFF]*6):
         """Scan for a card and read data from a specific block."""

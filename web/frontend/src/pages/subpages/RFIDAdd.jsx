@@ -1,53 +1,76 @@
 import React, { useState, useEffect, useRef, use } from 'react';
+import { Link } from "react-router-dom";
 import api from "../../api";
-const RFIDAdd = () => {
-  const [uid, setUid] = useState("");
-  const [isReadyToScan, setIsReadyToScan] = useState(false);
-  const [isScanned, setIsScanned] = useState(false); // <-- Added
 
-  const [boxName, setBoxName] = useState("");
-  const [items, setItems] = useState("");
+import { useRFID } from "../../App"; // or "../../App" depending on path
+
+const RFIDAdd = () => {
+  const {
+    uid, setUid,
+    isScanned, setIsScanned,
+    isReadyToScan, setIsReadyToScan,
+    boxName, setBoxName,
+    items, setItems
+  } = useRFID();
 
   const handleBoxNameChange = (e) => setBoxName(e.target.value);
   const handleItemsChange = (e) => setItems(e.target.value);
 
-  useEffect(() => {
-    setUid("");
-    setIsScanned(false); // Reset scan status
+  // useEffect(() => {
+  //   if (!isReadyToScan) {
+  //     setUid("");
+  //     setIsScanned(false);
+  //     tryInitializeUntilReady();
+  //   }
+  // }, []);
+
+  const tryInitializeUntilReady = async () => {
+    let success = false;
   
-    const initializeRFID = async () => {
-      const closeSuccess = await handleClose();
-      if (!closeSuccess) {
-        setIsReadyToScan(false);
-        return;
-      }
+    while (!success) {
+      // await new Promise(r => setTimeout(r, 3000));
+      success = await initializeRFID();
+    }
+    // Now that it's definitely initialized
+    // await new Promise(r => setTimeout(r, 1000));
+    // console.log("Step 3");
+    await handleScan();
+  };
+
+  const initializeRFID = async () => {
+    // console.log("Step 1");
+    const closeSuccess = await handleClose();
   
+    if (closeSuccess) {
+      // await new Promise(r => setTimeout(r, 1000));
+      // console.log("Step 2");
       const initSuccess = await handleInitialize();
-      setIsReadyToScan(initSuccess);
   
       if (initSuccess) {
-        await handleScan(); // <-- Automatically start scanning!
+        setIsReadyToScan(true); // This is still useful for UI
+        // console.log("Initialized successfully");
+        return true;
       }
-    };
+    }
   
-    initializeRFID();
-  }, []);
+    return false;
+  };
 
   // Initialize the reader
   const handleInitialize = async () => {
-    try {
-      const response = await api.post("/initialize");
-      console.log("[SUCCESS] Initialize request sent.");
+    // try {
+    //   const response = await api.post("/initialize");
+    //   console.log("[SUCCESS] Initialize request sent.");
 
-      if (response.data?.message) {
-        console.log("[INFO]", response.data.message);
-      }
+    //   if (response.data?.message) {
+    //     console.log("[INFO]", response.data.message);
+    //   }
 
-      return true;
-    } catch {
-      console.log("[ERROR] Failed to initialize reader.");
-      return false;
-    }
+    //   return true;
+    // } catch {
+    //   console.log("[ERROR] Failed to initialize reader.");
+    //   return false;
+    // }
   };
   
 
@@ -55,7 +78,7 @@ const RFIDAdd = () => {
   const handleClose = async () => {
     try {
       const response = await api.post("/close");
-      console.log("[SUCCESS] Close request sent.");
+      // console.log("[SUCCESS] Close request sent.");
 
       if (response.data?.message) {
         console.log("[INFO]", response.data.message);
@@ -76,7 +99,7 @@ const RFIDAdd = () => {
   // Scan RFID tag
   const handleScan = async () => {
     try {
-      const response = await api.post("/scan");
+      const response = await api.post("/scancont");
       console.log("[SUCCESS] Scan request sent.");
 
       if (response.data?.uid) {
@@ -95,19 +118,54 @@ const RFIDAdd = () => {
     }
   };
 
+  const handleDiscard = (e) => {
+    e.preventDefault();
+    setBoxName("");
+    setItems("");
+    setUid("");
+    setIsScanned(false);
+    setIsReadyToScan(false);
+    console.log("[INFO] Discarded changes");
+  };
+  
+  const handleSave = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await api.post("/rfid-box/", {
+        uid,
+        box_name: boxName
+      });
+  
+      console.log("[SUCCESS] Box saved:", response.data);
+  
+      // Optional: Add logic to save items if needed
+    } catch (error) {
+      console.log("[ERROR] Failed to save:", error);
+    }
+  };
+
 
   return(
     <div>
       {!isReadyToScan && (
-        <div>
-          <h3>⚠️ RFID Reader Initialization Failed</h3>
-          <p>Please go to the RFID Settings page and manually check the reader.</p>
-        </div>
+        <div className="flex flex-col items-center justify-center h-[60vh] text-center text-[#285082]">
+        <div className="text-9xl mb-4">⚠️</div>
+        <h3 className="text-3xl font-bold mb-2">RFID Reader Initialization Failed</h3>
+        <p className="text-lg max-w-md">
+          Please go to the{" "}
+          <Link to="/rfid/settings" className="underline font-semibold text-blue-600 hover:text-blue-800">
+            RFID Settings
+          </Link>{" "}
+          page and manually check the reader.
+        </p>
+      </div>
       )}
 
       {isReadyToScan && !isScanned && (
-        <div>
-          <h3>Waiting for RFID Scan...</h3>
+        <div className="flex flex-col items-center justify-center h-[60vh] text-center text-[#285082]">
+          <div className="text-8xl mb-4 animate-pulse">📡</div>
+          <h3 className="text-3xl font-bold mb-2">Waiting for RFID Scan...</h3>
+          <p className="text-lg max-w-md">Please scan your RFID tag to continue.</p>
         </div>
       )}
 

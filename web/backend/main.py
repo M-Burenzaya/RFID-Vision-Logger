@@ -11,7 +11,17 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../s
 from rfid_reader import RFIDReader
 from camera import CameraReader
 
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.orm import Session
+from models import RfidBox, Item  # These are the models you created
+from database import SessionLocal, init_db
+
+
 import cv2
+
+init_db()
+
+
 
 # To run the backend:       cd RFID-Vision-Logger/web/backend/ 
 #                           uvicorn main:app --reload
@@ -64,6 +74,40 @@ def decrement_counter():
     """Decrements the counter value"""
     counter["value"] -= 1
     return {"value": counter["value"]}
+
+# Dependency to get the database session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# Route to create a new RFID box
+@app.post("/rfid-box/")
+def create_rfid_box(uid: str, box_name: str, db: Session = Depends(get_db)):
+    db_rfid_box = RfidBox(uid=uid, box_name=box_name)
+    db.add(db_rfid_box)
+    db.commit()
+    db.refresh(db_rfid_box)
+    return db_rfid_box
+
+# Route to add an item to a box
+@app.post("/add-item/")
+def add_item(item_name: str, item_description: str, quantity: int, rfid_box_id: int, db: Session = Depends(get_db)):
+    db_item = Item(item_name=item_name, item_description=item_description, quantity=quantity, rfid_box_id=rfid_box_id)
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+# Route to get items by RFID box UID
+@app.get("/items/{rfid_uid}")
+def get_items(rfid_uid: str, db: Session = Depends(get_db)):
+    db_rfid_box = db.query(RfidBox).filter(RfidBox.uid == rfid_uid).first()
+    if db_rfid_box is None:
+        raise HTTPException(status_code=404, detail="RFID box not found")
+    return db_rfid_box.items
 
 # Initialize
 @app.post("/initialize")
@@ -152,7 +196,18 @@ def close_rfid():
 @app.post("/scan")
 def scan_rfid():
     """Scans for an RFID card and returns UID"""
+    # print("[INFO] Scanning for RFID card...")
     success, result = reader.scan_rfid()
+
+    if success:
+        return {"message": "RFID card detected.", "uid": result["uid"]}
+    else:
+        return JSONResponse(status_code=500, content={"message": result})
+
+@app.post("/scancont")
+def scan_rfid_continuous():
+    """Scans for an RFID card continuously until detected"""
+    success, result = reader.scan_rfid(continuous=True)
     if success:
         return {"message": "RFID card detected.", "uid": result["uid"]}
     else:
