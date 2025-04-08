@@ -19,16 +19,23 @@ const RFIDAdd = () => {
     items, setItems
   } = useRFID();
 
+  const [newItem, setNewItem] = useState({
+    item_name: "",
+    item_description: "",
+    quantity: 1,
+  });
+
+
   const handleBoxNameChange = (e) => setBoxName(e.target.value);
   const handleItemsChange = (e) => setItems(e.target.value);
 
-  // useEffect(() => {
-  //   if (!isReadyToScan) {
-  //     setUid("");
-  //     setIsScanned(false);
-  //     tryInitializeUntilReady();
-  //   }
-  // }, []);
+  useEffect(() => {
+    if (!isReadyToScan) {
+      setUid("");
+      setIsScanned(false);
+      tryInitializeUntilReady();
+    }
+  }, []);
 
   const tryInitializeUntilReady = async () => {
     let success = false;
@@ -64,19 +71,19 @@ const RFIDAdd = () => {
 
   // Initialize the reader
   const handleInitialize = async () => {
-    // try {
-    //   const response = await api.post("/initialize");
-    //   console.log("[SUCCESS] Initialize request sent.");
+    try {
+      const response = await api.post("/initialize");
+      console.log("[SUCCESS] Initialize request sent.");
 
-    //   if (response.data?.message) {
-    //     console.log("[INFO]", response.data.message);
-    //   }
+      if (response.data?.message) {
+        console.log("[INFO]", response.data.message);
+      }
 
-    //   return true;
-    // } catch {
-    //   console.log("[ERROR] Failed to initialize reader.");
-    //   return false;
-    // }
+      return true;
+    } catch {
+      console.log("[ERROR] Failed to initialize reader.");
+      return false;
+    }
   };
   
 
@@ -127,11 +134,14 @@ const RFIDAdd = () => {
 //----------------------------------------------------------------------------------------------
 
   const handleAddItem = () => {
-    if (newItem.trim()) {
-      setItems([...items, newItem.trim()]);
-      setNewItem("");
+    const { item_name, item_description, quantity } = newItem;
+
+    if (item_name.trim()) {
+      setItems([...items, { item_name, item_description, quantity }]);
+      setNewItem({ item_name: "", item_description: "", quantity: 1 });
     }
   };
+
 
   const handleDeleteItem = (index) => {
     const updated = [...items];
@@ -151,24 +161,30 @@ const RFIDAdd = () => {
   const handleDiscard = (e) => {
     e.preventDefault();
     setBoxName("");
-    setItems("");
+    setItems([]); // ← Fix is here
     setUid("");
     setIsScanned(false);
     setIsReadyToScan(false);
     console.log("[INFO] Discarded changes");
+
+    tryInitializeUntilReady();
   };
   
   const handleSave = async (e) => {
     e.preventDefault();
     try {
-      const response = await api.post("/rfid-box/", {
+      const payload = {
         uid,
-        box_name: boxName
-      });
+        box_name: boxName,
+        items: items.map((item) => ({
+          item_name: item.item_name,
+          item_description: item.item_description,
+          quantity: item.quantity
+        }))
+      };
   
+      const response = await api.post("/rfid-box/", payload);
       console.log("[SUCCESS] Box saved:", response.data);
-  
-      // Optional: Add logic to save items if needed
     } catch (error) {
       console.log("[ERROR] Failed to save:", error);
     }
@@ -208,81 +224,112 @@ const RFIDAdd = () => {
       )}
 
       {isReadyToScan && isScanned && (
-        <div style={{ maxWidth: "600px", margin: "auto" }}>
-        <h3>✅ RFID Scanned</h3>
-        <p>UID: {uid}</p>
+        <div className="max-w-3xl mx-auto p-6 mt-6 bg-white text-[#285082]">
+          <h2 className="text-2xl font-bold mb-2">RFID Scanned</h2>
+          <p className="text-sm mb-6">UID: <span className="font-mono">{uid}</span></p>
 
-        <form>
-          <label>Box Name</label>
-          <input
-            type="text"
-            value={boxName}
-            onChange={handleBoxNameChange}
-            className="w-full border p-2 mb-4"
-          />
-
-          <label>Items Inside</label>
-          <div style={{ display: "flex", marginBottom: "1rem" }}>
+          <form>
+            <label className="block font-semibold mb-1">Box Name</label>
             <input
               type="text"
-              placeholder="Add item"
-              value={newItem}
-              onChange={(e) => setNewItem(e.target.value)}
-              style={{ flex: 1, marginRight: "0.5rem" }}
+              value={boxName}
+              onChange={handleBoxNameChange}
+              className="w-full border border-[#285082] p-2 rounded-md mb-6"
+              placeholder="Enter box name"
             />
-            <button type="button" onClick={handleAddItem}>Add</button>
-          </div>
 
-          <DragDropContext onDragEnd={handleDragEnd}>
-            <Droppable droppableId="itemList">
-              {(provided) => (
-                <ul
-                  {...provided.droppableProps}
-                  ref={provided.innerRef}
-                  style={{ padding: 0, listStyle: "none" }}
-                >
-                  {items.map((item, index) => (
-                    <Draggable key={item + index} draggableId={item + index} index={index}>
-                      {(provided) => (
-                        <li
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          {...provided.dragHandleProps}
-                          style={{
-                            ...provided.draggableProps.style,
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            padding: "0.5rem",
-                            marginBottom: "0.5rem",
-                            border: "1px solid #ccc",
-                            borderRadius: "4px",
-                            backgroundColor: "#f9f9f9"
-                          }}
-                        >
-                          <span>{item}</span>
-                          <button type="button" onClick={() => handleDeleteItem(index)}>❌</button>
-                        </li>
-                      )}
-                    </Draggable>
-                  ))}
-                  {provided.placeholder}
-                </ul>
-              )}
-            </Droppable>
-          </DragDropContext>
+            <label className="block font-semibold mb-2">Add Item</label>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-6">
+              <input
+                type="text"
+                placeholder="Item Name"
+                value={newItem.item_name}
+                onChange={(e) => setNewItem({ ...newItem, item_name: e.target.value })}
+                className="border p-2 rounded-md col-span-1"
+              />
+              <input
+                type="text"
+                placeholder="Description"
+                value={newItem.item_description}
+                onChange={(e) => setNewItem({ ...newItem, item_description: e.target.value })}
+                className="border p-2 rounded-md col-span-1"
+              />
+              <input
+                type="number"
+                placeholder="Qty"
+                min="1"
+                value={newItem.quantity}
+                onChange={(e) => setNewItem({ ...newItem, quantity: parseInt(e.target.value || "1") })}
+                className="border p-2 rounded-md col-span-1"
+              />
+              <button
+                type="button"
+                onClick={handleAddItem}
+                className="bg-[#285082] text-white p-2 rounded-md hover:bg-[#1e3a5f] col-span-1"
+              >
+                Add
+              </button>
+            </div>
 
-          <button onClick={handleDiscard} type="button" className="mr-4 mt-4">
-            Discard Changes
-          </button>
-          <button onClick={handleSave} type="submit" className="mt-4">
-            Save to Database
-          </button>
-        </form>
-      </div>
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <Droppable droppableId="itemList">
+                {(provided) => (
+                  <ul
+                    {...provided.droppableProps}
+                    ref={provided.innerRef}
+                    className="space-y-2 mb-6"
+                  >
+                    {Array.isArray(items) && items.map((item, index) => (
+                      <Draggable key={`${item.item_name}-${index}`} draggableId={`${item.item_name}-${index}`} index={index}>
+                        {(provided) => (
+                          <li
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            {...provided.dragHandleProps}
+                            className="flex justify-between items-center p-3 border border-gray-300 rounded-md bg-gray-50"
+                          >
+                            <span>
+                              <strong>{item.item_name}</strong> - {item.item_description} (x{item.quantity})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteItem(index)}
+                              className="text-red-500 hover:text-red-700 font-bold"
+                            >
+                              ❌
+                            </button>
+                          </li>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </ul>
+                )}
+              </Droppable>
+            </DragDropContext>
+
+            <div className="flex flex-col sm:flex-row justify-end gap-4">
+              <button
+                onClick={handleDiscard}
+                type="button"
+                className="p-2 border border-[#285082] text-[#285082] rounded-md hover:bg-[#f0f8ff]"
+              >
+                Discard Changes
+              </button>
+              <button
+                onClick={handleSave}
+                type="submit"
+                className="p-2 bg-[#285082] text-white rounded-md hover:bg-[#1e3a5f]"
+              >
+                Save to Database
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
-      <div style={{ marginTop: "2rem" }}>
+
+      {/* <div style={{ marginTop: "2rem" }}>
         <h4>🧪 Debug/Test Panel</h4>
 
         <button onClick={() => setIsReadyToScan(true)} style={{ marginRight: "1rem" }}>
@@ -306,7 +353,7 @@ const RFIDAdd = () => {
         }}>
           Reset Scan State 🔁
         </button>
-      </div>
+      </div> */}
     </div>
   );
 };
