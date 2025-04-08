@@ -34,7 +34,17 @@ import cv2
 
 init_db()
 
+rotation_angle = 180
 
+rotate_map = {
+    0: None,  # Optional: skip rotation
+    90: cv2.ROTATE_90_CLOCKWISE,
+    180: cv2.ROTATE_180,
+    270: cv2.ROTATE_90_COUNTERCLOCKWISE
+}
+
+flip_horizontal = True
+flip_vertical = False
 
 # To run the backend:       cd RFID-Vision-Logger/web/backend/ 
 #                           uvicorn main:app --reload
@@ -67,6 +77,16 @@ app.add_middleware(
 class BlockData(BaseModel):
     block: str
     data: str | None = None  # Optional in /read
+
+def get_flip_code(flip_horizontal: bool, flip_vertical: bool):
+    if flip_horizontal and flip_vertical:
+        return -1
+    elif flip_horizontal:
+        return 1
+    elif flip_vertical:
+        return 0
+    else:
+        return None  # no flip
 
 # Shared counter (in-memory)
 counter = {"value": 0}
@@ -319,6 +339,16 @@ async def trigger_once():
     try:
         # Capture the image using the CameraReader
         image = camera.capture_image()
+        #---------------------------------------------          Maunual process
+        if rotate_map[rotation_angle] is not None:
+
+            image = cv2.rotate(image, rotate_map[rotation_angle])
+
+        flip_code = get_flip_code(flip_horizontal, flip_vertical)
+        
+        if flip_code is not None:
+            image = cv2.flip(image, flip_code)
+        #---------------------------------------------
 
         if image is None:
             raise Exception("Failed to capture image.")
@@ -374,7 +404,16 @@ async def continuous_capture():
         try:
             # Capture the image using the CameraReader
             image = camera.capture_image()
+            #---------------------------------------------          Maunual process
+            if rotate_map[rotation_angle] is not None:
 
+                image = cv2.rotate(image, rotate_map[rotation_angle])
+
+            flip_code = get_flip_code(flip_horizontal, flip_vertical)
+            
+            if flip_code is not None:
+                image = cv2.flip(image, flip_code)
+            #---------------------------------------------
             if image is None:
                 raise Exception("Failed to capture image.")
             
@@ -411,3 +450,27 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         print("Client disconnected")
         connected_ws = None  # Reset the WebSocket connection when disconnected
+
+@app.post("/rotateCW")
+def rotate_clockwise():
+    global rotation_angle
+    rotation_angle = (rotation_angle + 90) % 360
+    return {"rotation_angle": rotation_angle}
+
+@app.post("/rotateCCW")
+def rotate_counterclockwise():
+    global rotation_angle
+    rotation_angle = (rotation_angle - 90) % 360
+    return {"rotation_angle": rotation_angle}
+
+@app.post("/flipH")
+def set_flip_horizontal():
+    global flip_horizontal
+    flip_horizontal = not flip_horizontal  # toggle
+    return {"flip_horizontal": flip_horizontal}
+
+@app.post("/flipV")
+def set_flip_vertical():
+    global flip_vertical
+    flip_vertical = not flip_vertical  # toggle
+    return {"flip_vertical": flip_vertical}

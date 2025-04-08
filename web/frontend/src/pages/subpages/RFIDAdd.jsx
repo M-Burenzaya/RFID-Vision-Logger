@@ -196,9 +196,9 @@ const RFIDAdd = () => {
       {!isReadyToScan && (
         <div className="flex flex-col items-center justify-center h-[60vh] text-center text-[#285082]">
         <img
-          src="/Warning_icon.svg"
+          src="/warning_icon.svg"
           alt="Warning Icon"
-          className="w-50 h-auto mb-4"
+          className="w-75 h-auto mb-4"
         />
         <h3 className="text-3xl font-bold mb-2">RFID Reader Initialization Failed</h3>
         <p className="text-lg max-w-md">
@@ -214,9 +214,9 @@ const RFIDAdd = () => {
       {isReadyToScan && !isScanned && (
         <div className="flex flex-col items-center justify-center h-[60vh] text-center text-[#285082]">
           <img
-            src="/RFID_icon.svg"
+            src="/rfid_icon.svg"
             alt="RFID Icon"
-            className="w-50 h-auto mb-4"
+            className="w-100 h-auto mb-4"
           />
           <h3 className="text-3xl font-bold mb-2">Waiting for RFID Scan...</h3>
           <p className="text-lg max-w-md">Please scan your RFID tag to continue.</p>
