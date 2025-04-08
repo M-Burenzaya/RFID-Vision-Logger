@@ -192,11 +192,11 @@ const RFIDAdd = () => {
 
 
   return(
-    <div>
+    <div className="max-w-6xl mx-auto">
       {!isReadyToScan && (
         <div className="flex flex-col items-center justify-center h-[60vh] text-center text-[#285082]">
         <img
-          src="/Warning_icon.png"
+          src="/Warning_icon.svg"
           alt="Warning Icon"
           className="w-50 h-auto mb-4"
         />

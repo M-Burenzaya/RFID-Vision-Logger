@@ -151,9 +151,9 @@ const VisionSettings = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row md:space-x-6 lg:space-x-12">
+    <div className="flex flex-col lg:flex-row md:space-x-6 lg:space-x-12 max-w-6xl mx-auto">
       {/* Left side: Image display */}
-      <div className="w-full lg:w-[150vw] mb-2 lg:mb-8 mt-4 lg:mt-8">
+      <div className="max-w-2xl w-full lg:w-[150vw] mb-2 lg:mb-8 mt-4 lg:mt-8">
         <div className="border rounded-md">
           {/* Image display */}
           <div className="flex justify-center">

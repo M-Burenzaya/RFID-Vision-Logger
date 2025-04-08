@@ -255,7 +255,7 @@ const RFIDSettings = () => {
   };
   
   return (
-    <div className=" flex flex-col lg:flex-row md:space-x-6 lg:space-x-12">
+    <div className=" flex flex-col lg:flex-row md:space-x-6 lg:space-x-12 max-w-6xl mx-auto">
       <div className=" flex flex-col w-full lg:w-700 mt-4 lg:mt-8 ">
         <p className="mb-4 text-left">
           Click on Initialize to start the process and prepare the system for further actions.
