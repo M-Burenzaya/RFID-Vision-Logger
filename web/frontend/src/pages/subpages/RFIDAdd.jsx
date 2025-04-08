@@ -214,7 +214,7 @@ const RFIDAdd = () => {
       {isReadyToScan && !isScanned && (
         <div className="flex flex-col items-center justify-center h-[60vh] text-center text-[#285082]">
           <img
-            src="/RFID_icon.png"
+            src="/RFID_icon.svg"
             alt="RFID Icon"
             className="w-50 h-auto mb-4"
           />
