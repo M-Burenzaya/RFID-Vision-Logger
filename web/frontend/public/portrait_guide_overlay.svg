@@ -1,0 +1,11 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="#285082" stroke-width="2">
+  <!-- Head: big and centered -->
+  <circle cx="100" cy="65" r="45" />
+
+  <!-- Neck and shoulders: wider and lower -->
+  <path d="M0 170 
+           C0 120, 200 120, 200 170 
+           L200 210 
+           C200 215, 0 215, 0 210 
+           Z" />
+</svg>

@@ -46,6 +46,7 @@ const VisionAdd = () => {
     setIsAdding(true);
     setHasCaptured(false);
     setName("");
+    triggerContinuous();
   };
 
   const handleCaptureClick = () => {
@@ -101,21 +102,28 @@ const VisionAdd = () => {
           </button>
         </div>
       ) : (
-        <div className="flex flex-col lg:flex-row md:space-x-6 lg:space-x-12 max-w-6xl mx-auto">
+        <div className="flex flex-col items-start lg:flex-row md:space-x-6 lg:space-x-12 max-w-6xl mx-auto">
           {/* Image preview */}
-          <div className="max-w-2xl w-full lg:w-[150vw] mt-4 lg:mt-8">
-            <div className="border rounded-md">
-              <div className="flex justify-center">
-                <img
-                  src={imageSrc || placeholderImage}
-                  alt="Received from server"
-                  className="w-full h-auto aspect-square object-cover rotate-[${rotation}deg]"
-                />
-              </div>
+          <div className="relative border rounded-md overflow-hidden">
+            {/* Portrait guide overlay */}
+            {!hasCaptured ? (
+              <img
+                src="/portrait_guide_overlay.svg"
+                alt="Guide Overlay"
+                className="absolute top-0 left-0 w-full h-full object-contain opacity-50 pointer-events-none z-10"
+              />
+            ) : null}
+            {/* Live image display */}
+            <div className="flex justify-center">
+              <img
+                src={imageSrc || placeholderImage}
+                alt="Received from server"
+                className="w-full h-auto aspect-square object-cover"
+              />
             </div>
           </div>
           {/* Form */}
-          <div className="flex flex-col border border-[#285082] justify-center mt-4 lg:mt-8 w-full max-w-2xl space-y-4">
+          <div className="flex flex-col justify-center mt-4 lg:mt-8 w-full max-w-2xl space-y-4">
             {/* Name input */}
             <div className="flex flex-row items-center space-x-4">
               <label className="text-base lg:text-lg xl:text-xl font-medium">Name:</label>
@@ -127,6 +135,7 @@ const VisionAdd = () => {
                 className="w-full border border-[#285082] p-2 rounded-md"
               />
             </div>
+
             {/* Capture button */}
             <div className="flex justify-center">
               <button
