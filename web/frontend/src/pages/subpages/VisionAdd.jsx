@@ -141,9 +141,26 @@ const VisionAdd = () => {
     if (isContinuousTrigger) triggerContinuous(); // toggle off
   };
 
-  const handleAddUserClick = () => {
-    if (name.trim() !== "") {
-      if (!isContinuousTrigger) triggerContinuous();
+  const handleAddUserClick = async () => {
+    if (name.trim() === "") {
+      alert("Please enter a name.");
+      return;
+    }
+  
+    try {
+      const response = await api.post("/add-user", { name });
+  
+      if (response.status === 200) {
+        alert("User added successfully!");
+        setIsAdding(false);
+        setHasCaptured(false);
+        setName("");
+      } else {
+        console.error("Unexpected response:", response);
+      }
+    } catch (error) {
+      console.error("Add user error:", error);
+      alert("Failed to add user.");
     }
   };
 
@@ -168,7 +185,7 @@ const VisionAdd = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row md:space-x-6 lg:space-x-12 max-w-6xl mx-auto">
+    <div className="flex flex-col justify-center items-center lg:flex-row md:space-x-6 lg:space-x-12 max-w-6xl mx-auto">
       {!isAdding ? (
         <div className="flex flex-col items-center justify-center text-center">
           <img src="/add_user_icon.svg" alt="Add User" className="w-100 h-auto mb-4" />

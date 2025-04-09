@@ -16,7 +16,7 @@ from camera import CameraReader
 
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
-from models import RfidBox, Item  # These are the models you created
+from models import RfidBox, Item, User  # These are the models you created
 from database import SessionLocal, init_db
 
 from pydantic import BaseModel
@@ -32,6 +32,9 @@ class RfidBoxCreate(BaseModel):
     uid: str
     box_name: str
     items: List[ItemCreate]
+
+class UserCreate(BaseModel):
+    name: str
 
 
 import cv2
@@ -407,7 +410,7 @@ async def start_continuous_capture(background_tasks: BackgroundTasks):
 async def continuous_capture():
     global is_continuous_capture
     frame_count = 0
-    TARGET_BOX = (128, 128, 384, 384)  # Define the target box (left, top, right, bottom)
+    TARGET_BOX = (128, 32, 384, 288)  # Define the target box (left, top, right, bottom)
     TARGET_POSITION = ((TARGET_BOX[0] + TARGET_BOX[2]) // 2, (TARGET_BOX[1] + TARGET_BOX[3]) // 2)
     last_detected_faces = []
     auto_trigger_capture = False
@@ -460,11 +463,11 @@ async def continuous_capture():
 
                         if is_show_features:
                             #---------------------------------------------
-                            cv2.arrowedLine(processed_image, face_center, TARGET_POSITION, (0, 0, 255), 2, tipLength=0.2)
+                            cv2.arrowedLine(processed_image, face_center, TARGET_POSITION, (0, 0, 255), 1, tipLength=0.2)
                             #---------------------------------------------
-                            cv2.rectangle(processed_image, (left, top), (right, bottom), (0, 255, 0), 2)
+                            cv2.rectangle(processed_image, (left, top), (right, bottom), (0, 255, 0), 1)
                 if is_show_features:
-                    cv2.rectangle(processed_image, (TARGET_BOX[0], TARGET_BOX[1]), (TARGET_BOX[2], TARGET_BOX[3]), (255, 255, 0), 2)
+                    cv2.rectangle(processed_image, (TARGET_BOX[0], TARGET_BOX[1]), (TARGET_BOX[2], TARGET_BOX[3]), (255, 255, 0), 1)
                 #---------------------------------------------
             if is_auto_capture:
                 # 1. Error vector
@@ -578,3 +581,43 @@ def get_vision_settings():
         "is_show_features": is_show_features,
         "is_auto_capture": is_auto_capture
     }
+
+@app.post("/add-user")
+def add_user(user: UserCreate, db: Session = Depends(get_db)):
+    import shutil
+
+    if not user.name.strip():
+        raise HTTPException(status_code=400, detail="Name cannot be empty.")
+
+    safe_name = user.name.strip().replace(" ", "_")
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    image_directory = os.path.join(current_dir, "images")
+    source_path = os.path.join(image_directory, "captured_image.jpg")
+    target_path = os.path.join(image_directory, f"{safe_name}.jpg")
+
+    if not os.path.exists(source_path):
+        raise HTTPException(status_code=404, detail="No captured image found.")
+
+    # Save image
+    shutil.copy(source_path, target_path)
+
+    # Load and encode face
+    image = face_recognition.load_image_file(source_path)
+    encodings = face_recognition.face_encodings(image)
+    if len(encodings) == 0:
+        raise HTTPException(status_code=400, detail="No face detected in image.")
+
+    face_encoding = encodings[0]  # Get the first face
+    encoding_json = json.dumps(face_encoding.tolist())  # Convert numpy array to JSON string
+
+    # Save to DB
+    db_user = User(
+        name=user.name,
+        image_filename=f"{safe_name}.jpg",
+        face_encoding=encoding_json
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+
+    return {"message": f"User '{user.name}' added", "user_id": db_user.id}

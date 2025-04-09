@@ -1,8 +1,8 @@
 # models.py
-
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base  # ✅ Use Base from database.py
+from datetime import datetime
 
 class RfidBox(Base):
     __tablename__ = "rfid_boxes"
@@ -21,3 +21,12 @@ class Item(Base):
     quantity = Column(Integer)
     rfid_box_id = Column(Integer, ForeignKey("rfid_boxes.id"))
     rfid_box = relationship("RfidBox", back_populates="items")
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    image_filename = Column(String)
+    face_encoding = Column(Text)  # Store as JSON string
+    created_at = Column(DateTime, default=datetime.utcnow)
