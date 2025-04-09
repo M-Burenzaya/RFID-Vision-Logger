@@ -1,6 +1,7 @@
 .venv/
 
 src/proxmark3/
+web/backend/images/
 
 # Build and Release Folders
 bin-debug/

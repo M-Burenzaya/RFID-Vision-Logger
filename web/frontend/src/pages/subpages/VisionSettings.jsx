@@ -6,6 +6,7 @@ const VisionSettings = () => {
   const [detectionName, setDetectionName] = useState("");
   const [detectionPercent, setDetectionPercent] = useState(0);
   const [showFeatures, setShowFeatures] = useState(false);
+  const [autoCapture, setAutoCapture] = useState(false);
   const [imageSrc, setImageSrc] = useState(null);  // Placeholder for image display
   const [debugConsole, setDebugConsole] = useState([]);
   const debugRef = useRef(null);
@@ -33,13 +34,19 @@ const VisionSettings = () => {
 
       // When a message is received
       socket.onmessage = (event) => {
-        const blob = event.data;  // The data received is a Blob object
-        // console.log("Received Blob:", blob);
-        const url = URL.createObjectURL(blob);  // Create a URL for the Blob
-        setImageSrc(url);  // Set the image URL for displaying it
-        // console.log("Image received and displayed.");
-
-        console.log(url);
+        if (typeof event.data === "string") {
+          const json = JSON.parse(event.data);
+          if (json.type === "auto_trigger") {
+            // console.log("Auto-trigger signal:", json.status);
+            if (json.status) {
+              triggerOnce();
+            }
+          }
+        } else if (event.data instanceof Blob) {
+          const url = URL.createObjectURL(event.data);
+          // console.log(url);
+          setImageSrc(url);
+        }
 
         // setTimeout(() => {
         //   URL.revokeObjectURL(url);  // Free memory used by the previous URL
@@ -60,15 +67,36 @@ const VisionSettings = () => {
       // Set WebSocket instance in state
       setWs(socket);
 
-      // Cleanup: Close WebSocket connection when component unmounts
+      // const handleUnload = () => {
+      //   const payload = JSON.stringify({ reason: "page_unload", time: Date.now() });
+      //   navigator.sendBeacon("http://localhost:8000/disconnected", payload);
+      // };
+  
+      // window.addEventListener("beforeunload", handleUnload);
+  
+      // Cleanup
       return () => {
-        if (socket) {
-          socket.close();  // Close the WebSocket connection on component unmount
-        }
+        if (socket)
+          socket.close();
+        // window.removeEventListener("beforeunload", handleUnload);
       };
     }, 500);
     return () => clearTimeout(timer);
 
+  }, []);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const response = await api.get("/vision-settings");
+        setShowFeatures(response.data.is_show_features);
+        setAutoCapture(response.data.is_auto_capture);
+      } catch (error) {
+        console.error("Failed to fetch vision settings:", error);
+      }
+    };
+  
+    fetchSettings();
   }, []);
 
   useEffect(() => {
@@ -119,7 +147,7 @@ const VisionSettings = () => {
       updateDebugConsole("Starting continuous capture...");
       
       try {
-        const response = await api.post("/startContinuous");  // Call the backend to start continuous capture
+        const response = await api.post("/startContinuous");
         if (response.status === 200) {
           updateDebugConsole("Continuous capture started.", "SUCCESS");
         } else {
@@ -146,8 +174,33 @@ const VisionSettings = () => {
   };
   
 
-  const handleFeatureToggle = () => {
-    setShowFeatures(!showFeatures);
+  const handleFeatureToggle = async () => {
+    const newState = !showFeatures;
+    setShowFeatures(newState);
+    // console.log("showFeatures (newState):", newState);
+
+    try {
+      await api.post("/setShowFeatures", { show_features: newState });
+      updateDebugConsole(`show_features updated to ${newState}`);
+    } catch (error) {
+      console.error("Failed to update show_features:", error);
+      updateDebugConsole(`Error occurred while updating show_features: ${error.message}`, "ERROR");
+    }
+  };
+
+
+  const handleAutoCaptureToggle = async () => {
+    const newState = !autoCapture;
+    setAutoCapture(newState);
+    // console.log("autoCapture (newState):", newState);
+
+    try {
+      await api.post("/setAutoCapture", { auto_capture: newState });
+      updateDebugConsole(`auto_capture updated to ${newState}`);
+    } catch (error) {
+      console.error("Failed to update auto_capture:", error);
+      updateDebugConsole(`Error occurred while updating auto_capture: ${error.message}`, "ERROR");
+    }
   };
 
   const handleRotateCCW = async () => {
@@ -267,38 +320,65 @@ const VisionSettings = () => {
       {/* Right side: Buttons and Debug Console */}
       <div className="max-w-2xl flex flex-col mt-4 lg:mt-8 w-full">
         {/* Buttons for trigger actions */}
-        <div className="w-full mb-4">
+        <div className="flex flex-col w-full gap-4">
 
-          <div className="w-full mb-4 grid grid-cols-2 lg:grid-cols-[repeat(auto-fit,_minmax(200px,_1fr))] gap-2 sm:gap-4 md:gap-6 lg:gap-4 text-lg md:text-xl">
-            <button onClick={triggerOnce} className="p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white">
-              Trigger Once
+          <div className="w-full grid grid-cols-2 gap-2 sm:gap-4 md:gap-6 lg:gap-4">
+            {/* Trigger Once Button */}
+            <button
+              onClick={triggerOnce}
+              className="p-2 border border-[#285082] bg-white 
+              text-[#285082] rounded-md cursor-pointer hover:bg-[#f0f8ff] 
+              active:bg-[#285082] active:text-white">
+                Trigger Once
             </button>
-            <button onClick={triggerContinuous} className={classNames("p-2 border rounded-md text-lg md:text-xl", {
-                'bg-[#285082] text-white hover:bg-[#1f407a]': isContinuousTrigger,
-                'bg-white text-[#285082] hover:bg-[#f0f8ff]': !isContinuousTrigger
-              })}>
+            {/* Continuous Trigger Button */}
+            <button 
+              onClick={triggerContinuous}
+              className={classNames("p-2 border rounded-md whitespace-nowrap",
+                {
+                  'bg-[#285082] text-white hover:bg-[#1f407a]': isContinuousTrigger,
+                  'bg-white text-[#285082] hover:bg-[#f0f8ff]': !isContinuousTrigger
+                }
+              )}
+            >
               {isContinuousTrigger ? "Stop Continuous" : "Start Continuous"}
             </button>
+
           </div>
 
-          <div className="w-full flex flex-row gap-4 lg:gap-4 text-sm sm:text-base lg:text-lg">
-            {/* Show features button */}
-            <div className="flex items-center justify-center text-[#285082]">
-              {/* Make the button same height as the inputs */}
-              <button
-                  onClick={handleFeatureToggle}
-                  className={classNames(
-                    'w-30 h-full text-lg md:text-xl border rounded-md flex items-center justify-center',
-                    {
-                      'bg-[#285082] text-white hover:bg-[#1f407a]': showFeatures,
-                      'bg-white text-[#285082] hover:bg-[#f0f8ff]': !showFeatures,
-                    }
-                  )}
-                >
-                  {showFeatures ? "Hide Features" : "Show Features"}
-              </button>
-            </div>
+          {/* Feature + AutoCapture Buttons (stacked vertically, small) */}
+          <div className="w-full grid grid-cols-2 gap-2 sm:gap-4 md:gap-6 lg:gap-4">
+            {/* Show Features Button */}
+            <button
+              onClick={handleFeatureToggle}
+              className={classNames(
+                'p-2 rounded-md border font-medium min-w-30  whitespace-nowrap',
+                {
+                  'bg-[#285082] text-white hover:bg-[#1f407a]': showFeatures,
+                  'bg-white text-[#285082] hover:bg-[#f0f8ff]': !showFeatures,
+                }
+              )}
+            >
+              {showFeatures ? "Hide Features" : "Show Features"}
+            </button>
 
+            {/* Auto Capture Button */}
+            <button
+              onClick={handleAutoCaptureToggle}
+              className={classNames(
+                'p-2 rounded-md border font-medium whitespace-nowrap',
+                {
+                  'bg-[#285082] text-white hover:bg-[#1f407a]': autoCapture,
+                  'bg-white text-[#285082] hover:bg-[#f0f8ff]': !autoCapture,
+                }
+              )}
+            >
+              {autoCapture ? "Auto capture" : "Auto capture"}
+            </button>
+          </div>
+          
+
+          <div className="w-full flex flex-row gap-4 lg:gap-4 text-sm sm:text-base">
             {/* Detection Name and Percent in a single column */}
             <div className="w-full flex flex-col gap-4 text-sm sm:text-base lg:text-lg">
               {/* Detection Name */}
@@ -324,14 +404,13 @@ const VisionSettings = () => {
               </div>
             </div>
           </div>
-
         </div>
 
         {/* Right side: Debug Console */}
         <div className="w-full mt-4 flex flex-col flex-grow">
           <div className="bg-gray-800 text-white p-4 rounded-md h-full mb-4 lg:mb-8 flex flex-col">
             <h3 className="text-lg md:text-sm lg:text-lg font-semibold mb-2">Debug Console</h3>
-            <div ref={debugRef} className="debug-console overflow-y-auto max-h-70 lg:max-h-[15vw] xl:max-h-[20vw] 2xl:max-h-[30vw]">
+            <div ref={debugRef} className="debug-console overflow-y-auto max-h-70 lg:max-h-[15vw] xl:max-h-[20vw]">
               {debugConsole.map((log, index) => (
                 <p key={index} className="text-sm">{log}</p>
               ))}

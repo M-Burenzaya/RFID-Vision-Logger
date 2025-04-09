@@ -3,17 +3,17 @@ from picamera2 import Picamera2
 import time
 
 class CameraReader:
-    def __init__(self):
-        """Initialize the camera and set it up."""
+    def __init__(self, main_resolution=(1024, 1024), raw_resolution=(2028, 1520)):
+        """Initialize the camera and set it up with custom resolution."""
         self.camera = Picamera2()
 
-        # Configure the camera
-        self.camera.configure(self.camera.create_preview_configuration(
-            raw={"size": (2028, 1520)},
-            main={"format": 'RGB888', "size": (1024, 1024)}
-        ))
+        self.camera.configure(
+            self.camera.create_preview_configuration(
+                raw={"size": raw_resolution},
+                main={"format": 'RGB888', "size": main_resolution}
+            )
+        )
 
-        # Start the camera
         self.camera.start()
 
     def capture_image(self):

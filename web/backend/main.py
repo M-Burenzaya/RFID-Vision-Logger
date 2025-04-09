@@ -1,10 +1,12 @@
 from fastapi import FastAPI, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
+from fastapi import Body
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import asyncio
 import face_recognition
+import json
 
 import sys
 import os
@@ -19,6 +21,7 @@ from database import SessionLocal, init_db
 
 from pydantic import BaseModel
 from typing import List
+import math
 
 class ItemCreate(BaseModel):
     item_name: str
@@ -53,11 +56,13 @@ flip_vertical = False
 image_capture_counter = 0
 # Add the src directory to the Python path
 is_continuous_capture = False
+is_show_features = False
+is_auto_capture = False
 
 connected_ws = None
 
 reader = RFIDReader()
-camera = CameraReader()
+camera = CameraReader(main_resolution=(512, 512))
 app = FastAPI()
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -362,6 +367,7 @@ async def trigger_once():
         if connected_ws:
             # Send the image as Blob (binary data) over WebSocket
             await connected_ws.send_bytes(img_bytes)  # Send image as Blob to the frontend
+            print("Image sent successfully over WebSocket.")    
             return {"message": "Image sent successfully over WebSocket."}
         else:
             # If no WebSocket connection, handle the case where no connection exists
@@ -377,35 +383,51 @@ async def trigger_once():
         )
 
 
+@app.post("/stopContinuous")
+async def stop_continuous_capture():
+    
+    global is_continuous_capture
+    is_continuous_capture = False  # Set flag to start capture
+
+    # print("Stopping continuous capture...")
+
+    return {"message": "Continuous capture stopped."}
+
 @app.post("/startContinuous")
 async def start_continuous_capture(background_tasks: BackgroundTasks):
     
     global is_continuous_capture
-    is_continuous_capture = True  # Set flag to start capture
-
+    is_continuous_capture = True
     background_tasks.add_task(continuous_capture)
 
     # print("Starting continuous capture...")
 
     return {"message": "Continuous capture started."}
 
-@app.post("/stopContinuous")
-async def stop_continuous_capture():
-    
-    global is_continuous_capture
-    is_continuous_capture = False  # Set flag to stop capture
-
-    # print("Stopping continuous capture...")
-
-    return {"message": "Continuous capture stopped."}
-
 async def continuous_capture():
+    global is_continuous_capture
+    frame_count = 0
+    TARGET_BOX = (128, 128, 384, 384)  # Define the target box (left, top, right, bottom)
+    TARGET_POSITION = ((TARGET_BOX[0] + TARGET_BOX[2]) // 2, (TARGET_BOX[1] + TARGET_BOX[3]) // 2)
+    last_detected_faces = []
+    auto_trigger_capture = False
+
     """Function that continuously captures and sends images."""
     while is_continuous_capture:
+
+        if connected_ws is None:
+            print("Frontend disconnected. Stopping continuous capture.")
+            is_continuous_capture = False
+            break
+
+        frame_count += 1
         try:
             # Capture the image using the CameraReader
             image = camera.capture_image()
-            #---------------------------------------------          Maunual process
+            if image is None:
+                raise Exception("Failed to capture image.")
+            
+            #------------------------------------------------------------Maunual process
             if rotate_map[rotation_angle] is not None:
 
                 image = cv2.rotate(image, rotate_map[rotation_angle])
@@ -414,33 +436,97 @@ async def continuous_capture():
             
             if flip_code is not None:
                 image = cv2.flip(image, flip_code)
+
+            #------------------------------------------------------------Draw features
+            processed_image = image
+
+            if is_show_features or is_auto_capture:
+                if frame_count % 5 == 0:
+                    small = cv2.resize(processed_image, (0, 0), fx=0.5, fy=0.5)
+                    image_rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+                    face_locations = face_recognition.face_locations(image_rgb)
+                    last_detected_faces = face_locations  # Save latest detection
+                else:
+                    face_locations = last_detected_faces
+
+                if face_locations is not None:
+                    for top, right, bottom, left in face_locations:
+                        top *= 2
+                        right *= 2
+                        bottom *= 2
+                        left *= 2
+                    
+                        face_center = ((left + right) // 2, (top + bottom) // 2)
+
+                        if is_show_features:
+                            #---------------------------------------------
+                            cv2.arrowedLine(processed_image, face_center, TARGET_POSITION, (0, 0, 255), 2, tipLength=0.2)
+                            #---------------------------------------------
+                            cv2.rectangle(processed_image, (left, top), (right, bottom), (0, 255, 0), 2)
+                if is_show_features:
+                    cv2.rectangle(processed_image, (TARGET_BOX[0], TARGET_BOX[1]), (TARGET_BOX[2], TARGET_BOX[3]), (255, 255, 0), 2)
+                #---------------------------------------------
+            if is_auto_capture:
+                # 1. Error vector
+                dx = TARGET_POSITION[0] - face_center[0]
+                dy = TARGET_POSITION[1] - face_center[1]
+
+                # 2. Magnitude (Euclidean distance)
+                error_magnitude = math.sqrt(dx**2 + dy**2)
+
+                # 3. Threshold comparison
+                THRESHOLD = 15  # you can tune this value
+
+                if error_magnitude < THRESHOLD:
+                    # 4. Trigger capture
+                    auto_trigger_capture = True
+                
             #---------------------------------------------
-            if image is None:
-                raise Exception("Failed to capture image.")
-            
             # Convert the image to bytes (as a Blob)
-            _, img_encoded = cv2.imencode('.jpg', image)
+            if is_show_features and not auto_trigger_capture :
+                _, img_encoded = cv2.imencode('.jpg', processed_image)
+            else:
+                _, img_encoded = cv2.imencode('.jpg', image)
+
             img_bytes = img_encoded.tobytes()
 
-            # Check if WebSocket connection is established
-            if connected_ws:
-                # Send the image as Blob (binary data) over WebSocket
-                await connected_ws.send_bytes(img_bytes)  # Send image as Blob to the frontend
+            if connected_ws:                                    # Send the image as Blob (binary data) over WebSocket
+                await connected_ws.send_text(json.dumps({"type": "auto_trigger", "status": auto_trigger_capture}))
+                await connected_ws.send_bytes(img_bytes)
             else:
-                # If no WebSocket connection, handle the case where no connection exists
                 print("WebSocket connection not established. Skipping image sending.")
+
         except Exception as e:
-            # Handle exceptions and return an appropriate error code
             print(f"Error occurred while capturing or sending image: {str(e)}")
 
+        await asyncio.sleep(1 / 30)  # 30 FPS
 
-        # Sleep for a short duration before capturing the next image
-        await asyncio.sleep(1 / 30)  # Capture an image every second (adjust as needed)
+class ShowFeaturesRequest(BaseModel):
+    show_features: bool
+@app.post("/setShowFeatures")
+async def set_show_features(data: ShowFeaturesRequest):
+    global is_show_features
+    is_show_features = data.show_features
+    return {"is_show_features": is_show_features}
+
+class AutoCaptureRequest(BaseModel):
+    auto_capture: bool
+@app.post("/setAutoCapture")
+async def set_auto_capture(data: AutoCaptureRequest):
+    global is_auto_capture
+    is_auto_capture = data.auto_capture
+    return {"is_auto_capture": is_auto_capture}
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     global connected_ws  # Use the global variable
+    global is_continuous_capture
+
+    if connected_ws is not None:
+        await connected_ws.close()
+        is_continuous_capture = False
+
     await websocket.accept()
     connected_ws = websocket  # Store the WebSocket connection
 
@@ -449,8 +535,17 @@ async def websocket_endpoint(websocket: WebSocket):
             # Keep the connection alive
             await websocket.receive_text()
     except WebSocketDisconnect:
-        print("Client disconnected")
+        # print("Client disconnected")
         connected_ws = None  # Reset the WebSocket connection when disconnected
+
+# @app.post("/disconnected")
+# async def frontend_disconnected(request: Request):
+#     data = await request.json()
+#     global is_continuous_capture
+
+#     print("Frontend disconnected:", data)
+#     is_continuous_capture = False
+#     return {"message": "Goodbye acknowledged"}
 
 @app.post("/rotateCW")
 def rotate_clockwise():
@@ -475,3 +570,11 @@ def set_flip_vertical():
     global flip_vertical
     flip_vertical = not flip_vertical  # toggle
     return {"flip_vertical": flip_vertical}
+
+#----------------------------------------Get Requests----------------------------------------------------------
+@app.get("/vision-settings")
+def get_vision_settings():
+    return {
+        "is_show_features": is_show_features,
+        "is_auto_capture": is_auto_capture
+    }
