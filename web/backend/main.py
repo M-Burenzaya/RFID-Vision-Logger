@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import asyncio
-import face_recognition
 import json
 
 import sys
@@ -23,8 +22,23 @@ from pydantic import BaseModel
 from typing import List
 import math
 
-# import threading
-# import queue
+import threading
+import queue
+
+import insightface
+# import onnxruntime
+# print(onnxruntime.get_available_providers())
+
+# Load the InsightFace model globally (once)
+from insightface.app import FaceAnalysis
+from insightface.model_zoo import get_model
+
+# Only load the detection module (fast and lightweight)
+det_model = FaceAnalysis(allowed_modules=['detection'])  
+det_model.prepare(ctx_id=-1, det_size=(160, 160))  # -1 = CPU
+
+# rec_model = get_model('your_recognition_model.onnx')
+# rec_model.prepare(ctx_id=-1)
 
 
 class ItemCreate(BaseModel):
@@ -59,16 +73,12 @@ flip_vertical = False
 
 # To run the backend:       cd RFID-Vision-Logger/web/backend/ 
 #                           uvicorn main:app --reload
-# Store the image capture counter (initially set to 0)
 
 image_capture_counter = 0
 captured_image = None
 
 face_detection_queue = queue.Queue(maxsize=1)
-face_encoding_queue = queue.Queue(maxsize=1)
-
-face_locations_result_queue = queue.Queue(maxsize=1)
-
+face_result_queue = queue.Queue(maxsize=1)
 
 
 # Add the src directory to the Python path
@@ -81,6 +91,12 @@ connected_ws = None
 reader = RFIDReader()
 camera = CameraReader(main_resolution=(512, 512))
 app = FastAPI()
+
+@app.on_event("startup")
+def start_worker_threads():
+    threading.Thread(target=face_detection_worker, daemon=True).start()
+    print("✅ Face detection thread started.")
+
 
 # @app.on_event("startup")
 # def start_worker_threads():
@@ -467,49 +483,34 @@ async def continuous_capture():
             processed_image = image
 
             if is_show_features or is_auto_capture:
-                # if frame_count % 5 == 0:
-                #     small = cv2.resize(processed_image, (0, 0), fx=0.5, fy=0.5)
-                #     image_rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-                #     face_locations = face_recognition.face_locations(image_rgb)
-                #     last_detected_faces = face_locations  # Save latest detection
-                # else:
-                #     face_locations = last_detected_faces
-
-                # encodings = face_recognition.face_encodings(processed_image)
-                # print("Number of faces detected:", len(encodings))
-                    
                 try:
-                    small = cv2.resize(processed_image, (0, 0), fx=0.5, fy=0.5)
-                    image_rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-                    face_detection_queue.put_nowait(image_rgb.copy())
+                    if face_detection_queue.empty():
+                        face_detection_queue.put_nowait(processed_image.copy())
                 except queue.Full:
-                    # print("Detection queue full — skipping frame.")
                     pass
 
                 try:
-                    face_locations = face_locations_result_queue.get_nowait()
-                    last_detected_faces = face_locations
+                    faces = face_result_queue.get_nowait()
+                    face_result_queue.task_done()
+                    last_faces = faces  # 🔁 Update the cache
                 except queue.Empty:
-                    face_locations = last_detected_faces
+                    faces = last_faces  # ⏪ Reuse cached result
 
 
-                if face_locations is not None:
-                    for top, right, bottom, left in face_locations:
-                        top *= 2
-                        right *= 2
-                        bottom *= 2
-                        left *= 2
-                    
-                        face_center = ((left + right) // 2, (top + bottom) // 2)
+                for face in faces:
+                    x1, y1, x2, y2 = map(int, face.bbox)
+                    face_center = ((x1 + x2) // 2, (y1 + y2) // 2)
+            #---------------------------------------------
+                    if is_show_features:
+                        cv2.arrowedLine(processed_image, face_center, TARGET_POSITION, (0, 0, 255), 1, tipLength=0.2)
+                        cv2.rectangle(processed_image, (x1, y1), (x2, y2), (0, 255, 0), 1)
 
-                        if is_show_features:
-                            #---------------------------------------------
-                            cv2.arrowedLine(processed_image, face_center, TARGET_POSITION, (0, 0, 255), 1, tipLength=0.2)
-                            #---------------------------------------------
-                            cv2.rectangle(processed_image, (left, top), (right, bottom), (0, 255, 0), 1)
+                        for x, y in face.kps:
+                            cv2.circle(processed_image, (int(x), int(y)), 1, (255, 0, 0), -1)
+            #---------------------------------------------
                 if is_show_features:
                     cv2.rectangle(processed_image, (TARGET_BOX[0], TARGET_BOX[1]), (TARGET_BOX[2], TARGET_BOX[3]), (255, 255, 0), 1)
-                #---------------------------------------------
+            #---------------------------------------------
             if is_auto_capture:
                 # 1. Error vector
                 dx = TARGET_POSITION[0] - face_center[0]
@@ -545,36 +546,19 @@ async def continuous_capture():
 
         await asyncio.sleep(1 / 30)  # 30 FPS
 
-# def face_detection_worker():
-#     while True:
-#         image = face_detection_queue.get()
-
-#         try:
-#             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-#             face_locations = face_recognition.face_locations(rgb_image)
-
-#             if len(face_locations) > 0:
-#                 try:
-#                     # Send face data to encoding thread
-#                     face_encoding_queue.put_nowait((rgb_image, face_locations))
-#                 except queue.Full:
-#                     print("Encoding queue is full — skipping.")
-
-#                 try:
-#                     # Send face locations to main loop (non-blocking)
-#                     if face_locations_result_queue.full():
-#                         face_locations_result_queue.get_nowait()  # Remove stale data
-#                     face_locations_result_queue.put_nowait(face_locations)
-#                 except queue.Full:
-#                     print("Result queue full — skipping.")
-
-#             else:
-#                 print("No face detected.")
-#         except Exception as e:
-#             print("Face detection error:", e)
-
-#         face_detection_queue.task_done()
-
+def face_detection_worker():
+    while True:
+        image = face_detection_queue.get()
+        try:
+            faces = det_model.get(image)
+            # print(faces)
+            if face_result_queue.full():
+                face_result_queue.get_nowait()
+            face_result_queue.put_nowait(faces)
+        except Exception as e:
+            print("Worker error:", e)
+        finally:
+            face_detection_queue.task_done()
 
 # def face_encoding_worker():
 #     while True:
@@ -672,40 +656,40 @@ def get_vision_settings():
         "is_auto_capture": is_auto_capture
     }
 
-@app.post("/add-user")
-def add_user(user: UserCreate, db: Session = Depends(get_db)):
-    # print("Received user data:", user)
-    import shutil
-    #-----------------------------------------------------------------------------User name-----------------------
-    if not user.name.strip():
-        raise HTTPException(status_code=400, detail="Name cannot be empty.")
-    #-----------------------------------------------------------------------------User image----------------------
-    global captured_image
-    if captured_image is None:
-        raise HTTPException(status_code=404, detail="No captured image found.")
+# @app.post("/add-user")
+# def add_user(user: UserCreate, db: Session = Depends(get_db)):
+#     # print("Received user data:", user)
+#     import shutil
+#     #-----------------------------------------------------------------------------User name-----------------------
+#     if not user.name.strip():
+#         raise HTTPException(status_code=400, detail="Name cannot be empty.")
+#     #-----------------------------------------------------------------------------User image----------------------
+#     global captured_image
+#     if captured_image is None:
+#         raise HTTPException(status_code=404, detail="No captured image found.")
 
-    # Save the image with user's name
-    safe_name = user.name.strip().replace(" ", "_")
-    target_path = os.path.join(image_directory, f"{safe_name}.jpg")
-    cv2.imwrite(target_path, captured_image)
-    #-----------------------------------------------------------------------------User face encoding-------------
-    rgb_image = cv2.cvtColor(captured_image, cv2.COLOR_BGR2RGB)
-    encodings = face_recognition.face_encodings(rgb_image)
-    if len(encodings) == 0:
-        print("No face detected in image.")
-        raise HTTPException(status_code=400, detail="No face detected in image.")
+#     # Save the image with user's name
+#     safe_name = user.name.strip().replace(" ", "_")
+#     target_path = os.path.join(image_directory, f"{safe_name}.jpg")
+#     cv2.imwrite(target_path, captured_image)
+#     #-----------------------------------------------------------------------------User face encoding-------------
+#     rgb_image = cv2.cvtColor(captured_image, cv2.COLOR_BGR2RGB)
+#     encodings = face_recognition.face_encodings(rgb_image)
+#     if len(encodings) == 0:
+#         print("No face detected in image.")
+#         raise HTTPException(status_code=400, detail="No face detected in image.")
 
-    face_encoding = encodings[0]
-    encoding_json = json.dumps(face_encoding.tolist())
+#     face_encoding = encodings[0]
+#     encoding_json = json.dumps(face_encoding.tolist())
 
-    # Save user to DB
-    db_user = User(
-        name=user.name,
-        image_filename=f"{safe_name}.jpg",
-        face_encoding=encoding_json
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+#     # Save user to DB
+#     db_user = User(
+#         name=user.name,
+#         image_filename=f"{safe_name}.jpg",
+#         face_encoding=encoding_json
+#     )
+#     db.add(db_user)
+#     db.commit()
+#     db.refresh(db_user)
 
-    return {"message": f"User '{user.name}' added", "user_id": db_user.id}
+#     return {"message": f"User '{user.name}' added", "user_id": db_user.id}
