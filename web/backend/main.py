@@ -23,6 +23,10 @@ from pydantic import BaseModel
 from typing import List
 import math
 
+# import threading
+# import queue
+
+
 class ItemCreate(BaseModel):
     item_name: str
     item_description: str
@@ -56,7 +60,17 @@ flip_vertical = False
 # To run the backend:       cd RFID-Vision-Logger/web/backend/ 
 #                           uvicorn main:app --reload
 # Store the image capture counter (initially set to 0)
+
 image_capture_counter = 0
+captured_image = None
+
+face_detection_queue = queue.Queue(maxsize=1)
+face_encoding_queue = queue.Queue(maxsize=1)
+
+face_locations_result_queue = queue.Queue(maxsize=1)
+
+
+
 # Add the src directory to the Python path
 is_continuous_capture = False
 is_show_features = False
@@ -67,6 +81,13 @@ connected_ws = None
 reader = RFIDReader()
 camera = CameraReader(main_resolution=(512, 512))
 app = FastAPI()
+
+# @app.on_event("startup")
+# def start_worker_threads():
+#     threading.Thread(target=face_detection_worker, daemon=True).start()
+#     threading.Thread(target=face_encoding_worker, daemon=True).start()
+#     print("✅ Face detection and encoding threads started.")
+
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 image_directory = os.path.join(current_dir, "images")
@@ -342,6 +363,7 @@ def initialize_rfid():
 
 @app.post("/triggerOnce")
 async def trigger_once():
+    global captured_image
     global is_continuous_capture
     is_continuous_capture = False
     """Handles the trigger action when the frontend clicks 'Trigger Once'"""
@@ -363,6 +385,7 @@ async def trigger_once():
             raise Exception("Failed to capture image.")
         
         # Convert the image to bytes (as a Blob)
+        captured_image = image
         _, img_encoded = cv2.imencode('.jpg', image)
         img_bytes = img_encoded.tobytes()
 
@@ -444,13 +467,31 @@ async def continuous_capture():
             processed_image = image
 
             if is_show_features or is_auto_capture:
-                if frame_count % 5 == 0:
+                # if frame_count % 5 == 0:
+                #     small = cv2.resize(processed_image, (0, 0), fx=0.5, fy=0.5)
+                #     image_rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+                #     face_locations = face_recognition.face_locations(image_rgb)
+                #     last_detected_faces = face_locations  # Save latest detection
+                # else:
+                #     face_locations = last_detected_faces
+
+                # encodings = face_recognition.face_encodings(processed_image)
+                # print("Number of faces detected:", len(encodings))
+                    
+                try:
                     small = cv2.resize(processed_image, (0, 0), fx=0.5, fy=0.5)
                     image_rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-                    face_locations = face_recognition.face_locations(image_rgb)
-                    last_detected_faces = face_locations  # Save latest detection
-                else:
+                    face_detection_queue.put_nowait(image_rgb.copy())
+                except queue.Full:
+                    # print("Detection queue full — skipping frame.")
+                    pass
+
+                try:
+                    face_locations = face_locations_result_queue.get_nowait()
+                    last_detected_faces = face_locations
+                except queue.Empty:
                     face_locations = last_detected_faces
+
 
                 if face_locations is not None:
                     for top, right, bottom, left in face_locations:
@@ -503,6 +544,55 @@ async def continuous_capture():
             print(f"Error occurred while capturing or sending image: {str(e)}")
 
         await asyncio.sleep(1 / 30)  # 30 FPS
+
+# def face_detection_worker():
+#     while True:
+#         image = face_detection_queue.get()
+
+#         try:
+#             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#             face_locations = face_recognition.face_locations(rgb_image)
+
+#             if len(face_locations) > 0:
+#                 try:
+#                     # Send face data to encoding thread
+#                     face_encoding_queue.put_nowait((rgb_image, face_locations))
+#                 except queue.Full:
+#                     print("Encoding queue is full — skipping.")
+
+#                 try:
+#                     # Send face locations to main loop (non-blocking)
+#                     if face_locations_result_queue.full():
+#                         face_locations_result_queue.get_nowait()  # Remove stale data
+#                     face_locations_result_queue.put_nowait(face_locations)
+#                 except queue.Full:
+#                     print("Result queue full — skipping.")
+
+#             else:
+#                 print("No face detected.")
+#         except Exception as e:
+#             print("Face detection error:", e)
+
+#         face_detection_queue.task_done()
+
+
+# def face_encoding_worker():
+#     while True:
+#         rgb_image, face_locations = face_encoding_queue.get()
+
+#         try:
+#             encodings = face_recognition.face_encodings(rgb_image, known_face_locations=face_locations)
+#             if encodings:
+#                 print(f"✅ Face encoded. {len(encodings)} face(s)")
+#                 # TODO: Save to DB, compare with known users, etc.
+#             else:
+#                 print("⚠️ No encodings found.")
+#         except Exception as e:
+#             print("Encoding error:", e)
+
+#         face_encoding_queue.task_done()
+
+
 
 class ShowFeaturesRequest(BaseModel):
     show_features: bool
@@ -584,33 +674,31 @@ def get_vision_settings():
 
 @app.post("/add-user")
 def add_user(user: UserCreate, db: Session = Depends(get_db)):
+    # print("Received user data:", user)
     import shutil
-
+    #-----------------------------------------------------------------------------User name-----------------------
     if not user.name.strip():
         raise HTTPException(status_code=400, detail="Name cannot be empty.")
-
-    safe_name = user.name.strip().replace(" ", "_")
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    image_directory = os.path.join(current_dir, "images")
-    source_path = os.path.join(image_directory, "captured_image.jpg")
-    target_path = os.path.join(image_directory, f"{safe_name}.jpg")
-
-    if not os.path.exists(source_path):
+    #-----------------------------------------------------------------------------User image----------------------
+    global captured_image
+    if captured_image is None:
         raise HTTPException(status_code=404, detail="No captured image found.")
 
-    # Save image
-    shutil.copy(source_path, target_path)
-
-    # Load and encode face
-    image = face_recognition.load_image_file(source_path)
-    encodings = face_recognition.face_encodings(image)
+    # Save the image with user's name
+    safe_name = user.name.strip().replace(" ", "_")
+    target_path = os.path.join(image_directory, f"{safe_name}.jpg")
+    cv2.imwrite(target_path, captured_image)
+    #-----------------------------------------------------------------------------User face encoding-------------
+    rgb_image = cv2.cvtColor(captured_image, cv2.COLOR_BGR2RGB)
+    encodings = face_recognition.face_encodings(rgb_image)
     if len(encodings) == 0:
+        print("No face detected in image.")
         raise HTTPException(status_code=400, detail="No face detected in image.")
 
-    face_encoding = encodings[0]  # Get the first face
-    encoding_json = json.dumps(face_encoding.tolist())  # Convert numpy array to JSON string
+    face_encoding = encodings[0]
+    encoding_json = json.dumps(face_encoding.tolist())
 
-    # Save to DB
+    # Save user to DB
     db_user = User(
         name=user.name,
         image_filename=f"{safe_name}.jpg",
