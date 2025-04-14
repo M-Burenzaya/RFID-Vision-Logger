@@ -2,13 +2,13 @@ from fastapi import FastAPI, BackgroundTasks, Request, WebSocket, WebSocketDisco
 from fastapi import Body
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
+
 import asyncio
 import json
 
-import sys
-import os
+import sys, os
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src')))
 from rfid_reader import RFIDReader
 from camera import CameraReader
@@ -21,24 +21,22 @@ from database import SessionLocal, init_db
 from pydantic import BaseModel
 from typing import List
 import math
+import numpy as np
 
 import threading
 import queue
 
-import insightface
-# import onnxruntime
-# print(onnxruntime.get_available_providers())
-
 # Load the InsightFace model globally (once)
 from insightface.app import FaceAnalysis
-from insightface.model_zoo import get_model
+from insightface.data import get_image as ins_get_image
 
 # Only load the detection module (fast and lightweight)
 det_model = FaceAnalysis(allowed_modules=['detection'])  
 det_model.prepare(ctx_id=-1, det_size=(160, 160))  # -1 = CPU
 
-# rec_model = get_model('your_recognition_model.onnx')
-# rec_model.prepare(ctx_id=-1)
+rec_model = FaceAnalysis(name='buffalo_s', allowed_modules=['detection', 'recognition'])
+rec_model.prepare(ctx_id=-1, det_size=(640, 640))
+# print("Modules:", rec_model.models.keys())
 
 
 class ItemCreate(BaseModel):
@@ -78,8 +76,13 @@ image_capture_counter = 0
 captured_image = None
 
 face_detection_queue = queue.Queue(maxsize=1)
-face_result_queue = queue.Queue(maxsize=1)
+face_detection_result_queue = queue.Queue(maxsize=1)
 
+face_embedding_queue = queue.Queue(maxsize=1)
+face_embedding_result_queue = queue.Queue(maxsize=1)
+
+face_recognition_queue = queue.Queue(maxsize=1)
+face_recognition_result_queue = queue.Queue(maxsize=1)
 
 # Add the src directory to the Python path
 is_continuous_capture = False
@@ -95,15 +98,9 @@ app = FastAPI()
 @app.on_event("startup")
 def start_worker_threads():
     threading.Thread(target=face_detection_worker, daemon=True).start()
+    threading.Thread(target=face_embedding_worker, daemon=True).start()
+    threading.Thread(target=face_recognition_worker, daemon=True).start()
     print("✅ Face detection thread started.")
-
-
-# @app.on_event("startup")
-# def start_worker_threads():
-#     threading.Thread(target=face_detection_worker, daemon=True).start()
-#     threading.Thread(target=face_encoding_worker, daemon=True).start()
-#     print("✅ Face detection and encoding threads started.")
-
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 image_directory = os.path.join(current_dir, "images")
@@ -161,6 +158,18 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def load_all_embeddings(db: Session):
+    users = db.query(User).all()
+    embeddings = []
+
+    for user in users:
+        if user.face_encoding:
+            emb = np.frombuffer(user.face_encoding, dtype=np.float32)
+            print(f"User: {user.name}, Embedding shape: {emb.shape}, First 5 values: {emb[:5]}")
+            embeddings.append((user.name, emb))
+
+    return embeddings
 
 # Route to create a new RFID box
 
@@ -362,21 +371,6 @@ async def write_rfid(request: Request):
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": str(e)})
 
-@app.post("/initialize")
-def initialize_rfid():
-    """Initializes the RFID reader"""
-    try:
-        success, error = reader.initialize_rfid()
-        if success:
-            return {"message": "RFID reader initialized."}
-        else:
-            raise Exception(f"Failed to initialize RFID reader: {error}")
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"message": f"Failed to initialize: {str(e)}"}
-        )
-
 @app.post("/triggerOnce")
 async def trigger_once():
     global captured_image
@@ -451,11 +445,12 @@ async def continuous_capture():
     frame_count = 0
     TARGET_BOX = (128, 32, 384, 288)  # Define the target box (left, top, right, bottom)
     TARGET_POSITION = ((TARGET_BOX[0] + TARGET_BOX[2]) // 2, (TARGET_BOX[1] + TARGET_BOX[3]) // 2)
-    last_detected_faces = []
     auto_trigger_capture = False
+    face_center = (0, 0)
+    last_recognition_result = {"name": None, "distance": None}
 
     """Function that continuously captures and sends images."""
-    while is_continuous_capture:
+    while is_continuous_capture and not auto_trigger_capture:
 
         if connected_ws is None:
             print("Frontend disconnected. Stopping continuous capture.")
@@ -490,22 +485,50 @@ async def continuous_capture():
                     pass
 
                 try:
-                    faces = face_result_queue.get_nowait()
-                    face_result_queue.task_done()
-                    last_faces = faces  # 🔁 Update the cache
+                    face = face_detection_result_queue.get_nowait()
+                    face_detection_result_queue.task_done()
+                    last_face = face  # 🔁 Update the cache
                 except queue.Empty:
-                    faces = last_faces  # ⏪ Reuse cached result
+                    face = last_face  # ⏪ Reuse cached result
+
+                if face is not None and len(face) > 0:
+                    try:
+                        if face_recognition_queue.empty():
+                            face_recognition_queue.put_nowait(image.copy())
+                    except queue.Full:
+                        pass
+
+                    # Get recognition result (non-blocking)
+                    try:
+                        recognition_result = face_recognition_result_queue.get_nowait()
+                        face_recognition_result_queue.task_done()
+                    except queue.Empty:
+                        recognition_result = None
+
+                    # Send only if new and valid
+                    if connected_ws and recognition_result:
+                        name = recognition_result.get("name")
+                        distance = recognition_result.get("distance")
+
+                        if (name != last_recognition_result["name"]) or (distance != last_recognition_result["distance"]):
+                            last_recognition_result = {"name": name, "distance": distance}
+
+                            await connected_ws.send_text(json.dumps({
+                                "type": "recognition",
+                                "name": name,
+                                "distance": float(distance) if distance is not None else None
+                            }))
 
 
-                for face in faces:
-                    x1, y1, x2, y2 = map(int, face.bbox)
-                    face_center = ((x1 + x2) // 2, (y1 + y2) // 2)
+                    for f in face:
+                        x1, y1, x2, y2 = map(int, f.bbox)
+                        face_center = ((x1 + x2) // 2, (y1 + y2) // 2)
             #---------------------------------------------
                     if is_show_features:
                         cv2.arrowedLine(processed_image, face_center, TARGET_POSITION, (0, 0, 255), 1, tipLength=0.2)
                         cv2.rectangle(processed_image, (x1, y1), (x2, y2), (0, 255, 0), 1)
 
-                        for x, y in face.kps:
+                        for x, y in f.kps:
                             cv2.circle(processed_image, (int(x), int(y)), 1, (255, 0, 0), -1)
             #---------------------------------------------
                 if is_show_features:
@@ -525,6 +548,7 @@ async def continuous_capture():
                 if error_magnitude < THRESHOLD:
                     # 4. Trigger capture
                     auto_trigger_capture = True
+                    is_continuous_capture = False
                 
             #---------------------------------------------
             # Convert the image to bytes (as a Blob)
@@ -546,35 +570,90 @@ async def continuous_capture():
 
         await asyncio.sleep(1 / 30)  # 30 FPS
 
+    try:
+        face_detection_queue.queue.clear()
+        face_detection_result_queue.queue.clear()
+        # face_embedding_queue.queue.clear()
+        # face_embedding_result_queue.queue.clear()
+        # print("✅ All queues cleared after continuous capture.")
+    except Exception as e:
+        print(f"⚠️ Failed to clear queues: {e}")
+
 def face_detection_worker():
     while True:
         image = face_detection_queue.get()
         try:
-            faces = det_model.get(image)
+            face = det_model.get(image, max_num=1)
             # print(faces)
-            if face_result_queue.full():
-                face_result_queue.get_nowait()
-            face_result_queue.put_nowait(faces)
+            if face_detection_result_queue.full():
+                face_detection_result_queue.get_nowait()
+            face_detection_result_queue.put_nowait(face)
         except Exception as e:
             print("Worker error:", e)
         finally:
             face_detection_queue.task_done()
 
-# def face_encoding_worker():
-#     while True:
-#         rgb_image, face_locations = face_encoding_queue.get()
+def face_embedding_worker():
+    while True:
+        image = face_embedding_queue.get()
+        try:
+            face = det_model.get(image, max_num=1)
 
-#         try:
-#             encodings = face_recognition.face_encodings(rgb_image, known_face_locations=face_locations)
-#             if encodings:
-#                 print(f"✅ Face encoded. {len(encodings)} face(s)")
-#                 # TODO: Save to DB, compare with known users, etc.
-#             else:
-#                 print("⚠️ No encodings found.")
-#         except Exception as e:
-#             print("Encoding error:", e)
+            for face in face:
+                embedding = face[0].embedding
+                embedding.append({
+                    'bbox': face.bbox,
+                    'embedding': embedding
+                })
 
-#         face_encoding_queue.task_done()
+            if face_embedding_result_queue.full():
+                face_embedding_result_queue.get_nowait()
+            face_embedding_result_queue.put_nowait(embedding)
+
+        except Exception as e:
+            print("Embedding worker error:", e)
+        finally:
+            face_detection_result_queue.task_done()
+
+
+def face_recognition_worker():
+    db = next(get_db())  # Get DB session from generator
+    known_embeddings = load_all_embeddings(db)  # [(name, np_embedding), ...]
+
+    while True:
+        image = face_recognition_queue.get()
+        try:
+            face = rec_model.get(image, max_num=1)
+
+            if not face:
+                face_recognition_result_queue.put_nowait(None)
+                continue
+
+            embedding = face[0].embedding
+
+            # Find best match
+            best_match = None
+            best_distance = float("inf")
+            for name, db_embedding in known_embeddings:
+                distance = np.linalg.norm(embedding - db_embedding)
+                if distance < best_distance:
+                    best_distance = distance
+                    best_match = name
+
+            # Threshold for "recognition"
+            THRESHOLD = 20.0
+            if best_distance < THRESHOLD:
+                result = {"name": best_match, "distance": best_distance}
+            else:
+                result = {"name": None, "distance": best_distance}
+
+            face_recognition_result_queue.put_nowait(result)
+            print(result)
+
+        except Exception as e:
+            print("Recognition worker error:", e)
+        finally:
+            face_recognition_queue.task_done()
 
 
 
@@ -656,40 +735,47 @@ def get_vision_settings():
         "is_auto_capture": is_auto_capture
     }
 
-# @app.post("/add-user")
-# def add_user(user: UserCreate, db: Session = Depends(get_db)):
-#     # print("Received user data:", user)
-#     import shutil
-#     #-----------------------------------------------------------------------------User name-----------------------
-#     if not user.name.strip():
-#         raise HTTPException(status_code=400, detail="Name cannot be empty.")
-#     #-----------------------------------------------------------------------------User image----------------------
-#     global captured_image
-#     if captured_image is None:
-#         raise HTTPException(status_code=404, detail="No captured image found.")
+@app.post("/add-user")
+def add_user(user: UserCreate, db: Session = Depends(get_db)):
+    import shutil
 
-#     # Save the image with user's name
-#     safe_name = user.name.strip().replace(" ", "_")
-#     target_path = os.path.join(image_directory, f"{safe_name}.jpg")
-#     cv2.imwrite(target_path, captured_image)
-#     #-----------------------------------------------------------------------------User face encoding-------------
-#     rgb_image = cv2.cvtColor(captured_image, cv2.COLOR_BGR2RGB)
-#     encodings = face_recognition.face_encodings(rgb_image)
-#     if len(encodings) == 0:
-#         print("No face detected in image.")
-#         raise HTTPException(status_code=400, detail="No face detected in image.")
+    normalized_name = user.name.strip().lower()
+    if not normalized_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty.")
 
-#     face_encoding = encodings[0]
-#     encoding_json = json.dumps(face_encoding.tolist())
+    # Check for duplicate name
+    existing_user = db.query(User).filter(User.name == normalized_name).first()
+    if existing_user:
+        raise HTTPException(status_code=409, detail="User with this name already exists.")
 
-#     # Save user to DB
-#     db_user = User(
-#         name=user.name,
-#         image_filename=f"{safe_name}.jpg",
-#         face_encoding=encoding_json
-#     )
-#     db.add(db_user)
-#     db.commit()
-#     db.refresh(db_user)
+    global captured_image
+    if captured_image is None:
+        raise HTTPException(status_code=404, detail="No captured image found.")
 
-#     return {"message": f"User '{user.name}' added", "user_id": db_user.id}
+    # Save image
+    safe_filename = normalized_name.replace(" ", "_") + ".jpg"
+    target_path = os.path.join(image_directory, safe_filename)
+    cv2.imwrite(target_path, captured_image)
+
+    # Convert image and run embedding
+    rgb_image = cv2.cvtColor(captured_image, cv2.COLOR_BGR2RGB)
+    faces = rec_model.get(rgb_image, max_num=1)
+
+    if not faces:
+        raise HTTPException(status_code=400, detail="No face detected in image.")
+
+    embedding = faces[0].embedding
+    embedding_blob = embedding.astype(np.float32).tobytes()
+
+    # Save to DB
+    db_user = User(
+        name=normalized_name,
+        image_filename=safe_filename,
+        face_encoding=embedding_blob
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+
+    return {"message": f"User '{normalized_name}' added", "user_id": db_user.id}
+

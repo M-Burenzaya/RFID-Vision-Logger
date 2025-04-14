@@ -157,10 +157,15 @@ const VisionAdd = () => {
         setName("");
       } else {
         console.error("Unexpected response:", response);
+        alert("Unexpected error occurred.");
       }
     } catch (error) {
       console.error("Add user error:", error);
-      alert("Failed to add user.");
+      if (error.response && error.response.data && error.response.data.detail) {
+        alert(`Error: ${error.response.data.detail}`);
+      } else {
+        alert("Failed to add user.");
+      }
     }
   };
 

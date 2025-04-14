@@ -41,7 +41,12 @@ const VisionSettings = () => {
             if (json.status) {
               triggerOnce();
             }
+          } else if (json.type === "recognition") {
+            setDetectionName(json.name || "Unknown");
+            setDetectionPercent(json.distance !== null ? (100 - json.distance * 100).toFixed(2) : 0);
+            updateDebugConsole(`Recognition result: ${json.name ?? "Unknown"} (${json.distance?.toFixed(3) ?? "N/A"})`);
           }
+
         } else if (event.data instanceof Blob) {
           const url = URL.createObjectURL(event.data);
           // console.log(url);
