@@ -2,7 +2,7 @@ from fastapi import FastAPI, BackgroundTasks, Request, WebSocket, WebSocketDisco
 from fastapi import Body
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 
 import asyncio
 import json
@@ -778,4 +778,76 @@ def add_user(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(db_user)
 
     return {"message": f"User '{normalized_name}' added", "user_id": db_user.id}
+
+@app.get("/users")
+def get_users(db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    return [
+        {
+            "id": user.id,
+            "name": user.name,
+            "image_url": f"/user-image/{user.image_filename}"
+        }
+        for user in users
+    ]
+
+@app.get("/user-image/{filename}")
+def get_user_image(filename: str):
+    image_path = os.path.join(image_directory, filename)
+    if os.path.exists(image_path):
+        return FileResponse(image_path, media_type="image/jpeg")
+    else:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+@app.put("/update-user/{user_id}")
+def update_user(user_id: int, user: UserCreate, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.id == user_id).first()
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Normalize name
+    normalized_name = user.name.strip().lower()
+    if not normalized_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty.")
+
+    # Prevent duplicate name
+    existing_user = db.query(User).filter(User.name == normalized_name, User.id != user_id).first()
+    if existing_user:
+        raise HTTPException(status_code=409, detail="Another user with this name already exists.")
+
+    old_filename = db_user.image_filename
+    old_image_path = os.path.join(image_directory, old_filename)
+    new_filename = normalized_name.replace(" ", "_") + ".jpg"
+    new_image_path = os.path.join(image_directory, new_filename)
+
+    # Update DB name and filename
+    db_user.name = normalized_name
+    db_user.image_filename = new_filename
+
+    global captured_image
+    if captured_image:
+        # Save new captured image
+        cv2.imwrite(new_image_path, captured_image)
+
+        # Recalculate embedding
+        rgb_image = cv2.cvtColor(captured_image, cv2.COLOR_BGR2RGB)
+        faces = rec_model.get(rgb_image, max_num=1)
+        if not faces:
+            raise HTTPException(status_code=400, detail="No face found")
+
+        embedding = faces[0].embedding
+        db_user.face_encoding = embedding.astype(np.float32).tobytes()
+
+        # Optionally delete the old file if filename changed
+        if old_filename != new_filename and os.path.exists(old_image_path):
+            os.remove(old_image_path)
+
+    else:
+        # If no new image, rename the file if name changed
+        if old_filename != new_filename and os.path.exists(old_image_path):
+            os.rename(old_image_path, new_image_path)
+
+    db.commit()
+    return {"message": f"User '{normalized_name}' updated successfully"}
+
 

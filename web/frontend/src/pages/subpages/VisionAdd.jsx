@@ -1,5 +1,6 @@
 // Updated VisionAdd with autoCapture, showFeatures, and VisionSettings-like triggerContinuous logic
 import React, { useState, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import classNames from "classnames";
 import api from "../../api";
 
@@ -13,8 +14,37 @@ const VisionAdd = () => {
   const [isContinuousTrigger, setIsContinuousTrigger] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("Disconnected");
   const [ws, setWs] = useState(null);
+  const location = useLocation();
+  const passedUser = location.state;
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [userId, setUserId] = useState(null);
+
+  const navigate = useNavigate();
+  const cameFromList = passedUser !== undefined;
+
 
   const placeholderImage = "/default-placeholder.svg";
+
+  useEffect(() => {
+    if (passedUser) {
+      setName(passedUser.name || "");
+      setImageSrc(`http://localhost:8000${passedUser.image_url}`);
+      setUserId(passedUser.id);
+      setIsEditMode(true);
+      setHasCaptured(true);
+      setIsAdding(true);
+    }
+  }, [passedUser]);
+  
+
+  useEffect(() => {
+    if (passedUser) {
+      setName(passedUser.name || "");
+      setImageSrc(`http://localhost:8000${passedUser.image_url}`);
+      setHasCaptured(true);
+      setIsAdding(true);
+    }
+  }, [passedUser]);
 
   // Establish WebSocket connection
   useEffect(() => {
@@ -135,9 +165,13 @@ const VisionAdd = () => {
   };
 
   const handleDiscardClick = () => {
-    setIsAdding(false);
-    setHasCaptured(false);
-    setName("");
+    if (cameFromList) {
+      navigate("../list");
+    } else {
+      setIsAdding(false);
+      setHasCaptured(false);
+      setName("");
+    }
     if (isContinuousTrigger) triggerContinuous(); // toggle off
   };
 
@@ -148,24 +182,33 @@ const VisionAdd = () => {
     }
   
     try {
-      const response = await api.post("/add-user", { name });
+      const payload = { name };
   
-      if (response.status === 200) {
-        alert("User added successfully!");
+      if (isEditMode && userId !== null) {
+        const response = await api.put(`/update-user/${userId}`, payload);
+        if (response.status === 200) {
+          alert("User updated successfully!");
+        }
+      } else {
+        const response = await api.post("/add-user", payload);
+        if (response.status === 200) {
+          alert("User added successfully!");
+        }
+      }
+  
+      if (cameFromList) {
+        navigate("../list");
+      } else {
         setIsAdding(false);
         setHasCaptured(false);
         setName("");
-      } else {
-        console.error("Unexpected response:", response);
-        alert("Unexpected error occurred.");
+        setIsEditMode(false);
+        setUserId(null);
       }
+
     } catch (error) {
-      console.error("Add user error:", error);
-      if (error.response && error.response.data && error.response.data.detail) {
-        alert(`Error: ${error.response.data.detail}`);
-      } else {
-        alert("Failed to add user.");
-      }
+      console.error("Error saving user:", error);
+      alert("Failed to save user.");
     }
   };
 
@@ -234,11 +277,11 @@ const VisionAdd = () => {
               />
             </div>
 
-            <div className="flex justify-between gap-2">
+            <div className="flex justify-center gap-4 w-full whitespace-nowrap">
               <button
                 onClick={handleFeatureToggle}
                 className={classNames(
-                  "px-4 py-2 rounded-md border",
+                  "w-full p-2 rounded-md border",
                   showFeatures ? "bg-[#285082] text-white hover:bg-[#1f407a]" : "bg-white text-[#285082] hover:bg-[#f0f8ff]"
                 )}
               >
@@ -248,7 +291,7 @@ const VisionAdd = () => {
               <button
                 onClick={handleAutoCaptureToggle}
                 className={classNames(
-                  "px-4 py-2 rounded-md border",
+                  "w-full p-2 rounded-md border whitespace-nowrap",
                   autoCapture ? "bg-[#285082] text-white hover:bg-[#1f407a]" : "bg-white text-[#285082] hover:bg-[#f0f8ff]"
                 )}
               >
@@ -274,7 +317,7 @@ const VisionAdd = () => {
                 onClick={handleAddUserClick}
                 className="w-full p-2 bg-[#285082] text-white rounded-md hover:bg-[#1f407a]"
               >
-                Add User
+                {isEditMode ? "Edit User" : "Add User"}
               </button>
             </div>
           </div>
