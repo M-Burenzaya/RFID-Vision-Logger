@@ -17,7 +17,7 @@ export const RFIDProvider = ({ children }) => {
   const [isReadyToScan, setIsReadyToScan] = useState(false);
   const [isScanned, setIsScanned] = useState(false);
   const [boxName, setBoxName] = useState("");
-  const [items, setItems] = useState("");
+  const [items, setItems] = useState([]);
 
   return (
     <RFIDContext.Provider

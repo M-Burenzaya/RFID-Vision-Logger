@@ -174,35 +174,48 @@ def load_all_embeddings(db: Session):
 # Route to create a new RFID box
 
 @app.post("/rfid-box/")
-def create_rfid_box(data: RfidBoxCreate, db: Session = Depends(get_db)):
-    # Check for duplicate UID
+def create_or_update_rfid_box(data: RfidBoxCreate, db: Session = Depends(get_db)):
     existing = db.query(RfidBox).filter(RfidBox.uid == data.uid).first()
+
     if existing:
-        raise HTTPException(status_code=400, detail="RFID UID already exists.")
+        # Update box name
+        existing.box_name = data.box_name
 
-    # Create new box
-    new_box = RfidBox(uid=data.uid, box_name=data.box_name)
-    db.add(new_box)
-    db.commit()
-    db.refresh(new_box)
+        # Delete existing items
+        db.query(Item).filter(Item.rfid_box_id == existing.id).delete()
 
-    # Add items to that box
-    for item in data.items:
-        db_item = Item(
-            item_name=item.item_name,
-            item_description=item.item_description,
-            quantity=item.quantity,
-            rfid_box_id=new_box.id
-        )
-        db.add(db_item)
+        # Add new items
+        for item in data.items:
+            db_item = Item(
+                item_name=item.item_name,
+                item_description=item.item_description,
+                quantity=item.quantity,
+                rfid_box_id=existing.id
+            )
+            db.add(db_item)
 
-    db.commit()
+        db.commit()
+        return {"message": "Box updated successfully", "box_id": existing.id, "uid": existing.uid}
 
-    return {
-        "message": "Box and items saved successfully.",
-        "box_id": new_box.id,
-        "uid": new_box.uid
-    }
+    else:
+        # Create new box
+        new_box = RfidBox(uid=data.uid, box_name=data.box_name)
+        db.add(new_box)
+        db.commit()
+        db.refresh(new_box)
+
+        # Add items
+        for item in data.items:
+            db_item = Item(
+                item_name=item.item_name,
+                item_description=item.item_description,
+                quantity=item.quantity,
+                rfid_box_id=new_box.id
+            )
+            db.add(db_item)
+
+        db.commit()
+        return {"message": "Box created successfully", "box_id": new_box.id, "uid": new_box.uid}
 
 
 # Route to add an item to a box
@@ -213,6 +226,28 @@ def add_item(item_name: str, item_description: str, quantity: int, rfid_box_id: 
     db.commit()
     db.refresh(db_item)
     return db_item
+
+@app.get("/rfid-box/{uid}")
+def get_rfid_box(uid: str, db: Session = Depends(get_db)):
+    # Check if box exists
+    box = db.query(RfidBox).filter(RfidBox.uid == uid).first()
+    if not box:
+        raise HTTPException(status_code=404, detail="Box not found")
+
+    # Get related items
+    items = db.query(Item).filter(Item.rfid_box_id == box.id).all()
+
+    return {
+        "uid": box.uid,
+        "box_name": box.box_name,
+        "items": [
+            {
+                "item_name": item.item_name,
+                "item_description": item.item_description,
+                "quantity": item.quantity
+            } for item in items
+        ]
+    }
 
 # Route to get items by RFID box UID
 @app.get("/items/{rfid_uid}")
@@ -849,5 +884,3 @@ def update_user(user_id: int, user: UserCreate, db: Session = Depends(get_db)):
 
     db.commit()
     return {"message": f"User '{normalized_name}' updated successfully"}
-
-

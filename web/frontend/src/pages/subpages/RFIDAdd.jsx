@@ -16,7 +16,8 @@ const RFIDAdd = () => {
     isScanned, setIsScanned,
     isReadyToScan, setIsReadyToScan,
     boxName, setBoxName,
-    items, setItems
+    items, setItems,
+
   } = useRFID();
 
   const [newItem, setNewItem] = useState({
@@ -25,8 +26,14 @@ const RFIDAdd = () => {
     quantity: 1,
   });
 
+  const [editIndex, setEditIndex] = useState(null);
+  const [isChanged, setIsChanged] = useState(false);
 
-  const handleBoxNameChange = (e) => setBoxName(e.target.value);
+
+  const handleBoxNameChange = (e) => {
+    setBoxName(e.target.value)
+    setIsChanged(true);
+  };
   const handleItemsChange = (e) => setItems(e.target.value);
 
   useEffect(() => {
@@ -36,6 +43,31 @@ const RFIDAdd = () => {
       tryInitializeUntilReady();
     }
   }, []);
+
+  const fetchBoxByUid = async (scannedUid) => {
+    try {
+      const response = await api.get(`/rfid-box/${scannedUid}`);
+      
+      if (response.data) {
+        setBoxName(response.data.box_name || "");
+        setItems(response.data.items || []);
+        console.log("[INFO] Existing box loaded for UID:", scannedUid);
+      } else {
+        // UID exists but no data? Clear anyway
+        setBoxName("");
+        setItems([]);
+      }
+    } catch (error) {
+      if (error.response?.status === 404) {
+        console.log("[INFO] No box found for this UID, creating new.");
+        setBoxName("");
+        setItems([]);
+      } else {
+        console.log("[ERROR] Failed to fetch box data:", error);
+      }
+    }
+  };
+  
 
   const tryInitializeUntilReady = async () => {
     let success = false;
@@ -116,9 +148,13 @@ const RFIDAdd = () => {
       console.log("[SUCCESS] Scan request sent.");
 
       if (response.data?.uid) {
-        setUid(response.data.uid);
+        const scannedUid = response.data.uid;
+        setUid(scannedUid);
         setIsScanned(true); // <-- Set scanned to true
-        console.log("[INFO] Card UID:", response.data.uid);
+        console.log("[INFO] Card UID:", scannedUid);
+
+        await fetchBoxByUid(scannedUid);              // <--- fetch box data
+
       } else if (response.data?.message) {
         console.log("[INFO]", response.data.message);
       }
@@ -136,17 +172,35 @@ const RFIDAdd = () => {
   const handleAddItem = () => {
     const { item_name, item_description, quantity } = newItem;
 
-    if (item_name.trim()) {
+    if (!item_name.trim()) return;
+
+    if (editIndex !== null) {
+      // Edit existing item
+      const updatedItems = [...items];
+      updatedItems[editIndex] = { item_name, item_description, quantity };
+      setItems(updatedItems);
+      setEditIndex(null); // Reset edit mode
+    } else {
+      // Add new item
       setItems([...items, { item_name, item_description, quantity }]);
-      setNewItem({ item_name: "", item_description: "", quantity: 1 });
     }
+
+    // Clear form
+    setNewItem({ item_name: "", item_description: "", quantity: 1 });
+    setIsChanged(true);
   };
 
-
+  const handleEditItem = (index) => {
+    const itemToEdit = items[index];
+    setNewItem({ ...itemToEdit });
+    setEditIndex(index);
+  };
+  
   const handleDeleteItem = (index) => {
     const updated = [...items];
     updated.splice(index, 1);
     setItems(updated);
+    setIsChanged(true);
   };
 
   const handleDragEnd = (result) => {
@@ -157,38 +211,65 @@ const RFIDAdd = () => {
     setItems(reordered);
   };
 
+  const handleSave = async (e) => {
+    e.preventDefault();
+  
+    if (!uid || !boxName || items.length === 0) {
+      alert("Please scan an RFID tag and add at least one item.");
+      return;
+    }
+  
+    const payload = {
+      uid,
+      box_name: boxName,
+      items: items.map(item => ({
+        item_name: item.item_name,
+        item_description: item.item_description,
+        quantity: parseInt(item.quantity || "0"),
+      }))
+    };
+  
+    // console.log("Payload being sent:", payload); // 🪵 See what’s being sent
+  
+    try {
+      const response = await api.post("/rfid-box/", payload);
+      alert("Box saved successfully!");
+      resetFormState();
+
+      console.log("[INFO] Box saved");
+      tryInitializeUntilReady();
+
+      // console.log("[SUCCESS] Box saved:", response.data);
+    } catch (error) {
+      console.error("[ERROR] Failed to save:", error);
+      if (error.response?.data?.detail) {
+        alert(`Save failed: ${error.response.data.detail}`);
+      } else {
+        alert("Unexpected error occurred.");
+      }
+    }
+  };
 
   const handleDiscard = (e) => {
     e.preventDefault();
-    setBoxName("");
-    setItems([]); // ← Fix is here
+    resetFormState();
+
+    console.log("[INFO] Discarded changes");
+    tryInitializeUntilReady();
+  };
+
+  const resetFormState = () => {
     setUid("");
     setIsScanned(false);
     setIsReadyToScan(false);
-    console.log("[INFO] Discarded changes");
+    setBoxName("");
+    setItems([]);
+    setNewItem({ item_name: "", item_description: "", quantity: 1 });
+    setEditIndex(null);
+    setIsChanged(false);
+  };
 
-    tryInitializeUntilReady();
-  };
   
-  const handleSave = async (e) => {
-    e.preventDefault();
-    try {
-      const payload = {
-        uid,
-        box_name: boxName,
-        items: items.map((item) => ({
-          item_name: item.item_name,
-          item_description: item.item_description,
-          quantity: item.quantity
-        }))
-      };
-  
-      const response = await api.post("/rfid-box/", payload);
-      console.log("[SUCCESS] Box saved:", response.data);
-    } catch (error) {
-      console.log("[ERROR] Failed to save:", error);
-    }
-  };
 
 
   return(
@@ -224,80 +305,80 @@ const RFIDAdd = () => {
       )}
 
       {isReadyToScan && isScanned && (
-        <div className="max-w-3xl mx-auto p-6 mt-6 bg-white text-[#285082]">
-          <h2 className="text-2xl font-bold mb-2">RFID Scanned</h2>
-          <p className="text-sm mb-6">UID: <span className="font-mono">{uid}</span></p>
+        <div className="mx-auto p-6 mt-6 text-[#285082]">
 
-          <form>
-            <label className="block font-semibold mb-1">Box Name</label>
-            <input
-              type="text"
-              value={boxName}
-              onChange={handleBoxNameChange}
-              className="w-full border border-[#285082] p-2 rounded-md mb-6"
-              placeholder="Enter box name"
-            />
+          <div className="border border-gray-300 mb-6 p-4 rounded-lg">
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm md:text-base">
+              {/* UID */}
+              <div className="flex flex-1 flex-row items-center gap-4">
+                <label className="w-20 font-semibold text-[#285082]">UID</label>
+                <p className="w-full font-mono text-[#1e3a5f] bg-gray-100 px-3 py-2 rounded-md border border-gray-300 whitespace-nowrap">
+                  {uid}
+                </p>
+              </div>
 
-            <label className="block font-semibold mb-2">Add Item</label>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-6">
-              <input
-                type="text"
-                placeholder="Item Name"
-                value={newItem.item_name}
-                onChange={(e) => setNewItem({ ...newItem, item_name: e.target.value })}
-                className="border p-2 rounded-md col-span-1"
-              />
-              <input
-                type="text"
-                placeholder="Description"
-                value={newItem.item_description}
-                onChange={(e) => setNewItem({ ...newItem, item_description: e.target.value })}
-                className="border p-2 rounded-md col-span-1"
-              />
-              <input
-                type="number"
-                placeholder="Qty"
-                min="1"
-                value={newItem.quantity}
-                onChange={(e) => setNewItem({ ...newItem, quantity: parseInt(e.target.value || "1") })}
-                className="border p-2 rounded-md col-span-1"
-              />
-              <button
-                type="button"
-                onClick={handleAddItem}
-                className="bg-[#285082] text-white p-2 rounded-md hover:bg-[#1e3a5f] col-span-1"
-              >
-                Add
-              </button>
+              {/* Box Name */}
+              <div className="flex flex-1 flex-row items-center gap-4">
+                <label htmlFor="boxName" className="w-20 font-semibold text-[#285082] whitespace-nowrap">
+                  Box Name
+                </label>
+                <input
+                  id="boxName"
+                  type="text" 
+                  value={boxName}
+                  onChange={handleBoxNameChange}
+                  className="w-full border border-[#285082] focus:ring-2 focus:ring-[#285082]/40 focus:outline-none p-2 rounded-md transition"
+                  placeholder="Enter box name"
+                />
+              </div>
             </div>
-
+          </div>
+           
+          <div className="border border-gray-300 rounded-lg p-4 mb-6">
             <DragDropContext onDragEnd={handleDragEnd}>
               <Droppable droppableId="itemList">
                 {(provided) => (
                   <ul
                     {...provided.droppableProps}
                     ref={provided.innerRef}
-                    className="space-y-2 mb-6"
+                    className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-6"
                   >
                     {Array.isArray(items) && items.map((item, index) => (
                       <Draggable key={`${item.item_name}-${index}`} draggableId={`${item.item_name}-${index}`} index={index}>
-                        {(provided) => (
+                        {(provided, snapshot) => (
                           <li
                             ref={provided.innerRef}
                             {...provided.draggableProps}
                             {...provided.dragHandleProps}
-                            className="flex justify-between items-center p-3 border border-gray-300 rounded-md bg-gray-50"
+                            className={`flex items-center justify-between p-2 sm:p-4 rounded-lg shadow-sm border ${
+                              snapshot.isDragging ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-300'
+                            }`}
                           >
-                            <span>
-                              <strong>{item.item_name}</strong> - {item.item_description} (x{item.quantity})
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteItem(index)}
-                              className="text-red-500 hover:text-red-700 font-bold"
-                            >
-                              ❌
-                            </button>
+                            <div className="flex flex-row items-center space-x-2 sm:space-x-4 text-sm sm:text-base">
+                              <span className="font-semibold text-[#285082]">{item.item_name}</span>
+                              <span className="text-gray-600">{item.item_description}</span>
+                              <span className="text-gray-500">x{item.quantity}</span>
+                            </div>
+
+                            <div className="flex items-center space-x-2">
+                              <button
+                                type="button"
+                                onClick={() => handleEditItem(index)}
+                                className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-100 text-blue-600 hover:bg-blue-200 transition"
+                                title="Edit"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteItem(index)}
+                                className="w-8 h-8 flex items-center justify-center rounded-full bg-red-100 text-red-600 hover:bg-red-200 transition"
+                                title="Delete"
+                              >
+                                ❌
+                              </button>
+                            </div>
                           </li>
                         )}
                       </Draggable>
@@ -307,24 +388,72 @@ const RFIDAdd = () => {
                 )}
               </Droppable>
             </DragDropContext>
+          </div>
 
-            <div className="flex flex-col sm:flex-row justify-end gap-4">
+          {/* Add Item Form */}
+          <div className="border border-gray-300 rounded-lg p-6 bg-white shadow-sm">
+            <h2 className="text-xl font-bold mb-4">Add New Item</h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <input
+                type="text"
+                placeholder="Item Name"
+                value={newItem.item_name}
+                onChange={(e) => setNewItem({ ...newItem, item_name: e.target.value })}
+                className="border p-2 rounded-md"
+              />
+              <input
+                type="text"
+                placeholder="Description"
+                value={newItem.item_description}
+                onChange={(e) => setNewItem({ ...newItem, item_description: e.target.value })}
+                className="border p-2 rounded-md"
+              />
+              <input
+                type="number"
+                placeholder="Qty"
+                min="1"
+                value={newItem.quantity}
+                onChange={(e) => setNewItem({ ...newItem, quantity: parseInt(e.target.value || "1") })}
+                className="border p-2 rounded-md"
+              />
               <button
-                onClick={handleDiscard}
                 type="button"
-                className="p-2 border border-[#285082] text-[#285082] rounded-md hover:bg-[#f0f8ff]"
+                onClick={handleAddItem}
+                className="bg-[#285082] text-white p-2 rounded-md hover:bg-[#1e3a5f]"
               >
-                Discard Changes
-              </button>
-              <button
-                onClick={handleSave}
-                type="submit"
-                className="p-2 bg-[#285082] text-white rounded-md hover:bg-[#1e3a5f]"
-              >
-                Save to Database
+                {editIndex !== null ? "Update" : "Add"}
               </button>
             </div>
-          </form>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-col sm:flex-row justify-center items-stretch sm:items-center gap-4 mt-4">
+            <button
+              onClick={handleDiscard}
+              type="button"
+              className="w-full flex items-center justify-center sm:w-auto px-4 py-2 border border-[#285082] text-[#285082] rounded-md hover:bg-[#f0f8ff] transition text-sm font-medium"
+            >
+              
+              {/* Actual visible text */}
+              <span className="absolute">
+                {isChanged ? "Discard Changes" : "Back"}
+              </span>
+
+              {/* Invisible placeholder keeps size stable */}
+              <span className="invisible">
+                Discard Changes
+              </span>
+
+            </button>
+
+            <button
+              onClick={handleSave}
+              type="submit"
+              className="w-full sm:w-auto px-4 py-2 bg-[#285082] text-white rounded-md hover:bg-[#1e3a5f] transition text-sm font-medium"
+            >
+              Save to Database
+            </button>
+          </div>
         </div>
       )}
 

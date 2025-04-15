@@ -60,8 +60,8 @@ const VisionSettings = () => {
             } else {
               updateDebugConsole(logText);
             }
-            console.log(`[formatted] "${formattedName}"`);
-            console.log(`[detection] "${detectionRef.current}"`);
+            // console.log(`[formatted] "${formattedName}"`);
+            // console.log(`[detection] "${detectionRef.current}"`);
 
             setDetectionPercent(confidence);
             setDetectionName(formattedName);     // still needed for input box
