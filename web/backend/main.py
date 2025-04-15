@@ -257,6 +257,28 @@ def get_items(rfid_uid: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="RFID box not found")
     return db_rfid_box.items
 
+@app.get("/get-all-boxes")
+def get_all_boxes(db: Session = Depends(get_db)):
+    boxes = db.query(RfidBox).all()
+    result = []
+    for box in boxes:
+        result.append({
+            "id": box.id,
+            "uid": box.uid,
+            "box_name": box.box_name,
+            "items": [
+                {
+                    "id": item.id,
+                    "item_name": item.item_name,
+                    "item_description": item.item_description,
+                    "quantity": item.quantity,
+                }
+                for item in box.items
+            ]
+        })
+    return result
+
+
 # Initialize
 @app.post("/initialize")
 def initialize_rfid():
