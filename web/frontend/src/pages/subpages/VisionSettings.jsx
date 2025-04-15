@@ -16,6 +16,8 @@ const VisionSettings = () => {
   const [connectionStatus, setConnectionStatus] = useState("Disconnected");
   const [ws, setWs] = useState(null);
 
+  const detectionRef = useRef("");
+
   const placeholderImage = "/default-placeholder.svg";
 
 
@@ -42,9 +44,28 @@ const VisionSettings = () => {
               triggerOnce();
             }
           } else if (json.type === "recognition") {
-            setDetectionName(json.name || "Unknown");
-            setDetectionPercent(json.distance !== null ? (100 - json.distance * 100).toFixed(2) : 0);
-            updateDebugConsole(`Recognition result: ${json.name ?? "Unknown"} (${json.distance?.toFixed(3) ?? "N/A"})`);
+
+            const formattedName = json.name
+              ? json.name.replace(/\b\w/g, c => c.toUpperCase())
+              : "Unknown";
+
+              const confidence = json.distance !== null
+              ? (json.distance).toFixed(3)  // Example: distance 0.234 → confidence 0.766
+              : "0.000";
+            
+            const logText = `Recognition result: ${formattedName} (${json.distance?.toFixed(3) ?? "N/A"})`;
+
+            if (formattedName === detectionRef.current) {
+              replaceDebugConsole(logText);
+            } else {
+              updateDebugConsole(logText);
+            }
+            console.log(`[formatted] "${formattedName}"`);
+            console.log(`[detection] "${detectionRef.current}"`);
+
+            setDetectionPercent(confidence);
+            setDetectionName(formattedName);     // still needed for input box
+            detectionRef.current = formattedName; // for immediate comparison
           }
 
         } else if (event.data instanceof Blob) {
@@ -119,6 +140,22 @@ const VisionSettings = () => {
     }[level] || "LOG:     ";
     setDebugConsole((prev) => [...prev, prefix + message]);
   };
+
+  const replaceDebugConsole = (message, level = "INFO") => {
+    const prefix = {
+      INFO: "INFO:    ",
+      SUCCESS: "SUCCESS: ",
+      WARNING: "WARNING: ",
+      ERROR: "ERROR:   ",
+    }[level] || "LOG:     ";
+  
+    setDebugConsole(prev => {
+      const newLine = prefix + message;
+      if (prev.length === 0) return [newLine]; // if empty, just add it
+      return [...prev.slice(0, -1), newLine];  // replace last line
+    });
+  };
+  
 
   // Trigger Once function
   const triggerOnce = async () => {
