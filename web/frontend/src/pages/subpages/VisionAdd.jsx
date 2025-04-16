@@ -1,4 +1,3 @@
-// Updated VisionAdd with autoCapture, showFeatures, and VisionSettings-like triggerContinuous logic
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import classNames from "classnames";
@@ -15,11 +14,11 @@ const VisionAdd = () => {
   const [connectionStatus, setConnectionStatus] = useState("Disconnected");
   const [ws, setWs] = useState(null);
   const location = useLocation();
-  const passedUser = location.state;
   const [isEditMode, setIsEditMode] = useState(false);
   const [userId, setUserId] = useState(null);
-
+  
   const navigate = useNavigate();
+  const passedUser = location.state;
   const cameFromList = passedUser !== undefined;
 
 
@@ -164,8 +163,6 @@ const VisionAdd = () => {
     }
   };
   
-  
-
   const handleCaptureClick = () => {
     if (hasCaptured) {
       triggerContinuous();

@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Pencil, Trash2 } from "lucide-react";
 import api from "../../api";
+
 const RFIDList = () => {
   const [boxes, setBoxes] = useState([]);
-  const [editMode, setEditMode] = useState({});
-  const [boxChanges, setBoxChanges] = useState({});
   const [selectedBoxUid, setSelectedBoxUid] = useState(null);
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchBoxes();
@@ -20,30 +22,6 @@ const RFIDList = () => {
     }
   };
 
-  const startEdit = (uid) => {
-    setEditMode((prev) => ({ ...prev, [uid]: true }));
-    const box = boxes.find((b) => b.uid === uid);
-    setBoxChanges((prev) => ({ ...prev, [uid]: { ...box } }));
-  };
-
-  const cancelEdit = (uid) => {
-    setEditMode((prev) => ({ ...prev, [uid]: false }));
-    setBoxChanges((prev) => {
-      const newChanges = { ...prev };
-      delete newChanges[uid];
-      return newChanges;
-    });
-    setSelectedBoxUid(null);
-  };
-
-  const saveChanges = async (uid) => {
-    const updatedBox = boxChanges[uid];
-    await api.put(`/update-box/${updatedBox.id}`, updatedBox);
-    setEditMode((prev) => ({ ...prev, [uid]: false }));
-    fetchBoxes();
-    setSelectedBoxUid(null);
-  };
-
   const deleteBox = async (uid) => {
     const confirmed = window.confirm("Are you sure you want to delete this box?");
     if (!confirmed) return;
@@ -51,6 +29,7 @@ const RFIDList = () => {
     try {
       const box = boxes.find((b) => b.uid === uid);
       await api.delete(`/delete-box/${box.id}`);
+      console.log("[INFO] Box deleted");
       fetchBoxes();
       setSelectedBoxUid(null);
     } catch (err) {
@@ -59,11 +38,8 @@ const RFIDList = () => {
     }
   };
 
-  const handleChange = (uid, key, value) => {
-    setBoxChanges((prev) => ({
-      ...prev,
-      [uid]: { ...prev[uid], [key]: value },
-    }));
+  const handleEdit = (uid) => {
+    navigate("/rfid/add", { state: { uid, fromList: true } });
   };
 
   const toggleSelect = (uid) => {
@@ -84,20 +60,21 @@ const RFIDList = () => {
                 isSelected ? "ring-1 ring-[#285082]" : ""
               }`}
             >
-              {/* Top toolbar overlay */}
               {isSelected && (
                 <div
                   className="absolute top-0 left-0 w-full flex justify-between items-center px-4 py-2 bg-[#285082] text-white z-10 rounded-t-md"
-                  onClick={(e) => e.stopPropagation()} // prevent deselect
+                  onClick={(e) => e.stopPropagation()}
                 >
                   <span className="font-semibold">{box.box_name}</span>
                   <div className="space-x-2 flex items-center">
+
                     <button
-                      onClick={() => startEdit(box.uid)}
+                      onClick={() => handleEdit(box.uid)}
                       className="bg-white text-[#285082] p-1 rounded-full hover:bg-gray-200"
                     >
                       <Pencil size={18} />
                     </button>
+
                     <button
                       onClick={() => deleteBox(box.uid)}
                       className="bg-white text-[#285082] p-1 rounded-full hover:bg-gray-200"
@@ -105,20 +82,12 @@ const RFIDList = () => {
                       <Trash2 size={18} />
                     </button>
                   </div>
+
                 </div>
               )}
 
-              {/* Main content */}
               <div className={`${isSelected ? "opacity-50" : "opacity-100"} select-none`}>
-                
-                {editMode[box.uid] ? (
-                  <p className="text-xl font-bold">
-                    {boxChanges[box.uid]?.box_name || box.box_name}
-                  </p>
-                ) : (
-                  <p className="text-xl font-bold">{box.box_name}</p>
-                )}
-
+                <p className="text-xl font-bold">{box.box_name}</p>
                 <p className="text-sm text-gray-500 mt-2">UID: {box.uid}</p>
 
                 {Array.isArray(box.items) && box.items.length > 0 && (
@@ -130,7 +99,6 @@ const RFIDList = () => {
                     ))}
                   </ul>
                 )}
-      
               </div>
             </div>
           );

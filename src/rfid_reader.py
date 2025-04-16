@@ -4,6 +4,7 @@ import time
 class RFIDReader:
     def __init__(self):
         # Initialize the MFRC522 module
+        self.stop_scan = False
         self._init_reader()
 
     def _init_reader(self):
@@ -56,9 +57,10 @@ class RFIDReader:
 
     def scan_rfid(self, continuous=False):
         """Scan for an RFID card. If continuous=True, keep scanning until a card is found."""
-        try:
+        try:   
             if continuous:
-                while True:
+                self.stop_scan = False
+                while not self.stop_scan:
                     status, tag_type = self.MIFAREReader.MFRC522_Request(self.MIFAREReader.PICC_REQIDL)
                     if status == self.MIFAREReader.MI_OK:
                         status, uid = self.MIFAREReader.MFRC522_Anticoll()
@@ -66,6 +68,7 @@ class RFIDReader:
                             uid_str = "-".join(map(str, uid))
                             return True, {"uid": uid_str}
                     time.sleep(0.1)
+                return False, "Stopped by client"
             else:
                 timeout = 5  # seconds
                 start_time = time.time()
@@ -78,6 +81,7 @@ class RFIDReader:
                             return True, {"uid": uid_str}
                     time.sleep(0.1)
                 return False, "Timeout: No RFID card detected within 5 seconds."
+
         except Exception as e:
             return False, str(e)
 

@@ -392,6 +392,11 @@ def scan_rfid_continuous():
         return {"message": "RFID card detected.", "uid": result["uid"]}
     else:
         return JSONResponse(status_code=500, content={"message": result})
+    
+@app.post("/stopscan")
+def stop_scan():
+    reader.stop_scan = True
+    return {"message": "Scan stopped"}
 
 # Read
 @app.post("/read")

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, use } from 'react';
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Pencil, Trash2 } from "lucide-react";
 import api from "../../api";
 
@@ -30,20 +30,46 @@ const RFIDAdd = () => {
   const [editIndex, setEditIndex] = useState(null);
   const [isChanged, setIsChanged] = useState(false);
 
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const fromList = location.state?.fromList || false;
+  const passedUid = location.state?.uid;
+
+
+  useEffect(() => {
+    if (!passedUid) {
+      if (!isReadyToScan) {
+        setUid("");
+        setIsScanned(false);
+        tryInitializeUntilReady();
+      }
+    } else {
+      // UID is passed from navigation → Edit mode
+      setUid(passedUid);
+      setIsReadyToScan(true);
+      setIsScanned(true);
+      setIsReadyToScan(true);  // Important to show UI
+      fetchBoxByUid(passedUid);
+    }
+  }, [passedUid]);
 
   const handleBoxNameChange = (e) => {
     setBoxName(e.target.value)
     setIsChanged(true);
   };
-  const handleItemsChange = (e) => setItems(e.target.value);
 
-  useEffect(() => {
-    if (!isReadyToScan) {
-      setUid("");
-      setIsScanned(false);
-      tryInitializeUntilReady();
-    }
-  }, []);
+  const handleItemsChange = (e) => {
+    setItems(e.target.value);
+  }
+
+  // useEffect(() => {
+  //   if (!isReadyToScan) {
+  //     setUid("");
+  //     setIsScanned(false);
+  //     tryInitializeUntilReady();
+  //   }
+  // }, []);
 
   const fetchBoxByUid = async (scannedUid) => {
     try {
@@ -84,6 +110,7 @@ const RFIDAdd = () => {
   };
 
   const initializeRFID = async () => {
+    const response = await api.post("/stopscan");
     // console.log("Step 1");
     const closeSuccess = await handleClose();
   
@@ -229,16 +256,21 @@ const RFIDAdd = () => {
         quantity: parseInt(item.quantity || "0"),
       }))
     };
-  
+
     // console.log("Payload being sent:", payload); // 🪵 See what’s being sent
-  
+
     try {
       const response = await api.post("/rfid-box/", payload);
       alert("Box saved successfully!");
       resetFormState();
 
       console.log("[INFO] Box saved");
-      tryInitializeUntilReady();
+
+      if (fromList) {
+        navigate("/rfid/list");
+      } else {
+        tryInitializeUntilReady();
+      }
 
       // console.log("[SUCCESS] Box saved:", response.data);
     } catch (error) {
@@ -256,7 +288,12 @@ const RFIDAdd = () => {
     resetFormState();
 
     console.log("[INFO] Discarded changes");
-    tryInitializeUntilReady();
+
+    if (fromList) {
+      navigate("/rfid/list");
+    } else {
+      tryInitializeUntilReady();
+    }
   };
 
   const resetFormState = () => {
