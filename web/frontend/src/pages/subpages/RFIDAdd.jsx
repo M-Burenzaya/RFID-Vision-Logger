@@ -36,10 +36,12 @@ const RFIDAdd = () => {
   const fromList = location.state?.fromList || false;
   const passedUid = location.state?.uid;
 
+  const mountedRef = useRef(true);
+
 
   useEffect(() => {
     if (!passedUid) {
-      if (!isReadyToScan) {
+      if (!isReadyToScan || !isChanged) {
         setUid("");
         setIsScanned(false);
         tryInitializeUntilReady();
@@ -53,6 +55,13 @@ const RFIDAdd = () => {
       fetchBoxByUid(passedUid);
     }
   }, [passedUid]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const handleBoxNameChange = (e) => {
     setBoxName(e.target.value)
@@ -99,14 +108,16 @@ const RFIDAdd = () => {
   const tryInitializeUntilReady = async () => {
     let success = false;
   
-    while (!success) {
+    while (!success && mountedRef.current) {
       // await new Promise(r => setTimeout(r, 3000));
       success = await initializeRFID();
     }
     // Now that it's definitely initialized
     // await new Promise(r => setTimeout(r, 1000));
     // console.log("Step 3");
-    await handleScan();
+    if (mountedRef.current && success) {
+      await handleScan();
+    }
   };
 
   const initializeRFID = async () => {
