@@ -1,5 +1,5 @@
 from fastapi import FastAPI, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
-from fastapi import Body
+from fastapi import Path, Body
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -278,6 +278,16 @@ def get_all_boxes(db: Session = Depends(get_db)):
         })
     return result
 
+@app.delete("/delete-box/{box_id}")
+def delete_box(box_id: int = Path(...), db: Session = Depends(get_db)):
+    box = db.query(RfidBox).filter(RfidBox.id == box_id).first()
+    if not box:
+        raise HTTPException(status_code=404, detail="Box not found")
+
+    db.delete(box)  # Will also delete items if cascade is set
+    db.commit()
+    return {"message": "Box deleted successfully"}
+
 
 # Initialize
 @app.post("/initialize")
@@ -478,24 +488,32 @@ async def trigger_once():
 
 @app.post("/stopContinuous")
 async def stop_continuous_capture():
-    
     global is_continuous_capture
-    is_continuous_capture = False  # Set flag to start capture
 
-    # print("Stopping continuous capture...")
+    if not is_continuous_capture:
+        return {"message": "Continuous capture already stopped."}
 
+    is_continuous_capture = False
     return {"message": "Continuous capture stopped."}
+
 
 @app.post("/startContinuous")
 async def start_continuous_capture(background_tasks: BackgroundTasks):
-    
-    global is_continuous_capture
+    global is_continuous_capture, connected_ws
+
+    if connected_ws is None:
+        return JSONResponse(
+            status_code=400,
+            content={"message": "WebSocket connection not established. Cannot start capture."}
+        )
+
+    if is_continuous_capture:
+        return {"message": "Already running continuous capture."}
+
     is_continuous_capture = True
     background_tasks.add_task(continuous_capture)
-
-    # print("Starting continuous capture...")
-
     return {"message": "Continuous capture started."}
+
 
 async def continuous_capture():
     global is_continuous_capture
@@ -736,9 +754,9 @@ async def websocket_endpoint(websocket: WebSocket):
     global connected_ws  # Use the global variable
     global is_continuous_capture
 
-    if connected_ws is not None:
-        await connected_ws.close()
-        is_continuous_capture = False
+    # if connected_ws is not None:
+    #     await connected_ws.close()
+    #     is_continuous_capture = False
 
     await websocket.accept()
     connected_ws = websocket  # Store the WebSocket connection
@@ -749,6 +767,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         # print("Client disconnected")
+        is_continuous_capture = False
         connected_ws = None  # Reset the WebSocket connection when disconnected
 
 # @app.post("/disconnected")

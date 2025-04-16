@@ -47,7 +47,10 @@ const VisionAdd = () => {
   }, [passedUser]);
 
   // Establish WebSocket connection
+  // console.log("Component rendered");
   useEffect(() => {
+    const socketRef = { current: null };
+    // console.log("Effect mounted");
     const timer = setTimeout(() => {
 
       const socket = new WebSocket("ws://localhost:8000/ws");
@@ -56,7 +59,7 @@ const VisionAdd = () => {
       socket.onopen = () => {
         setConnectionStatus("Connected");
         console.log("WebSocket connected using custom function yay!!!");
-        console.log(imageSrc);
+        // console.log(imageSrc);
       };
 
       // When a message is received
@@ -92,24 +95,18 @@ const VisionAdd = () => {
       };
 
       // Set WebSocket instance in state
-      // setWs(socket);
-
-      // const handleUnload = () => {
-      //   const payload = JSON.stringify({ reason: "page_unload", time: Date.now() });
-      //   navigator.sendBeacon("http://localhost:8000/disconnected", payload);
-      // };
-  
-      // window.addEventListener("beforeunload", handleUnload);
-  
-      // Cleanup
-      return () => {
-        if (socket)
-          socket.close();
-        // window.removeEventListener("beforeunload", handleUnload);
-      };
+      setWs(socket);
+      socketRef.current = socket;
 
     }, 500);
-    return () => clearTimeout(timer);
+    
+    return () => {
+      clearTimeout(timer);
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        console.log("Cleaning up WebSocket. Current state:", socketRef.current.readyState);
+        socketRef.current.close();
+      }
+    };
 
   }, []);
 
@@ -152,8 +149,22 @@ const VisionAdd = () => {
     setIsAdding(true);
     setHasCaptured(false);
     setName("");
-    triggerContinuous();
+  
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      triggerContinuous(); // ✅ Safe to call
+    } else {
+      updateDebugConsole("Waiting for WebSocket to connect...");
+      const checkReady = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          clearInterval(checkReady);
+          updateDebugConsole("WebSocket connected. Starting continuous capture...");
+          triggerContinuous();
+        }
+      }, 200);
+    }
   };
+  
+  
 
   const handleCaptureClick = () => {
     if (hasCaptured) {

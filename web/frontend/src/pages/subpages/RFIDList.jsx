@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
-
+import { Pencil, Trash2 } from "lucide-react";
+import api from "../../api";
 const RFIDList = () => {
   const [boxes, setBoxes] = useState([]);
   const [editMode, setEditMode] = useState({});
@@ -13,7 +13,7 @@ const RFIDList = () => {
 
   const fetchBoxes = async () => {
     try {
-      const response = await axios.get("http://localhost:8000/get-all-boxes");
+      const response = await api.get("/get-all-boxes");
       setBoxes(response.data);
     } catch (err) {
       console.error("Failed to fetch boxes", err);
@@ -38,7 +38,7 @@ const RFIDList = () => {
 
   const saveChanges = async (uid) => {
     const updatedBox = boxChanges[uid];
-    await axios.put(`http://localhost:8000/update-box/${updatedBox.id}`, updatedBox);
+    await api.put(`/update-box/${updatedBox.id}`, updatedBox);
     setEditMode((prev) => ({ ...prev, [uid]: false }));
     fetchBoxes();
     setSelectedBoxUid(null);
@@ -50,7 +50,7 @@ const RFIDList = () => {
 
     try {
       const box = boxes.find((b) => b.uid === uid);
-      await axios.delete(`http://localhost:8000/delete-box/${box.id}`);
+      await api.delete(`/delete-box/${box.id}`);
       fetchBoxes();
       setSelectedBoxUid(null);
     } catch (err) {
@@ -80,49 +80,46 @@ const RFIDList = () => {
             <div
               key={box.uid}
               onClick={() => toggleSelect(box.uid)}
-              className={`relative border p-4 rounded-xl shadow bg-white cursor-pointer transition-all duration-200 ${
-                isSelected ? "ring-2 ring-[#285082]" : ""
+              className={`relative border p-4 rounded-xl shadow bg-white cursor-pointer transition-all duration-200 transform hover:shadow-lg ${
+                isSelected ? "ring-1 ring-[#285082]" : ""
               }`}
             >
               {/* Top toolbar overlay */}
               {isSelected && (
                 <div
-                  className="absolute top-0 left-0 w-full flex justify-between items-center px-4 py-2 bg-[#285082] text-white rounded-t-xl z-10"
+                  className="absolute top-0 left-0 w-full flex justify-between items-center px-4 py-2 bg-[#285082] text-white z-10 rounded-t-md"
                   onClick={(e) => e.stopPropagation()} // prevent deselect
                 >
                   <span className="font-semibold">{box.box_name}</span>
-                  <div className="space-x-2">
+                  <div className="space-x-2 flex items-center">
                     <button
                       onClick={() => startEdit(box.uid)}
-                      className="bg-yellow-400 text-[#1e3a5f] px-3 py-1 rounded text-sm"
+                      className="bg-white text-[#285082] p-1 rounded-full hover:bg-gray-200"
                     >
-                      Edit
+                      <Pencil size={18} />
                     </button>
                     <button
                       onClick={() => deleteBox(box.uid)}
-                      className="bg-red-500 text-white px-3 py-1 rounded text-sm"
+                      className="bg-white text-[#285082] p-1 rounded-full hover:bg-gray-200"
                     >
-                      Delete
+                      <Trash2 size={18} />
                     </button>
                   </div>
                 </div>
               )}
 
               {/* Main content */}
-              <div className={`${isSelected ? "pt-12" : ""}`}>
-                <p className="text-sm text-gray-500">UID: {box.uid}</p>
-
+              <div className={`${isSelected ? "opacity-50" : "opacity-100"} select-none`}>
+                
                 {editMode[box.uid] ? (
-                  <input
-                    type="text"
-                    value={boxChanges[box.uid]?.box_name || ""}
-                    onChange={(e) => handleChange(box.uid, "box_name", e.target.value)}
-                    className="text-xl font-bold border rounded px-2 mt-2"
-                    onClick={(e) => e.stopPropagation()}
-                  />
+                  <p className="text-xl font-bold">
+                    {boxChanges[box.uid]?.box_name || box.box_name}
+                  </p>
                 ) : (
-                  <p className="text-xl font-bold mt-2">{box.box_name}</p>
+                  <p className="text-xl font-bold">{box.box_name}</p>
                 )}
+
+                <p className="text-sm text-gray-500 mt-2">UID: {box.uid}</p>
 
                 {Array.isArray(box.items) && box.items.length > 0 && (
                   <ul className="mt-4 list-disc list-inside text-gray-700">
@@ -133,23 +130,7 @@ const RFIDList = () => {
                     ))}
                   </ul>
                 )}
-
-                {editMode[box.uid] && (
-                  <div className="mt-4 space-x-2" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={() => saveChanges(box.uid)}
-                      className="bg-green-500 text-white px-4 py-1 rounded"
-                    >
-                      Save Changes
-                    </button>
-                    <button
-                      onClick={() => cancelEdit(box.uid)}
-                      className="bg-gray-400 text-white px-4 py-1 rounded"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
+      
               </div>
             </div>
           );

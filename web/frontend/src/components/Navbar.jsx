@@ -43,7 +43,7 @@ const Navbar = () => {
 
   return (
     <nav>
-      <div className="mx-auto flex items-center justify-between px-6 sm:px-6 md:px-12 lg:px-18 xl:px-24">
+      <div className="mx-auto flex items-center justify-between px-6 sm:px-6 md:px-12 lg:px-18 xl:px-24 select-none">
 
         {/* Logo */}
         <a className="text-xl py-3 font-bold hover:text-[#678cdf]"

@@ -10,7 +10,7 @@ class RfidBox(Base):
     id = Column(Integer, primary_key=True, index=True)
     uid = Column(String, unique=True, index=True)
     box_name = Column(String)
-    items = relationship("Item", back_populates="rfid_box")
+    items = relationship("Item", back_populates="rfid_box", cascade="all, delete-orphan")
 
 class Item(Base):
     __tablename__ = "items"
@@ -31,3 +31,5 @@ class User(Base):
     image_filename = Column(String)
     face_encoding = Column(LargeBinary)  # Use binary blob
     created_at = Column(DateTime, default=datetime.utcnow)
+
+

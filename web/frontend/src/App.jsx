@@ -38,7 +38,7 @@ export const RFIDProvider = ({ children }) => {
 function App() {
   return (
     <RFIDProvider>
-      <div className="max-w-8xl mx-auto px-0 md:px-8 flex flex-col">
+      <div className="max-w-8xl mx-auto px-0 md:px-8 flex flex-col select-none">
         <BrowserRouter>
 
           <div className="bg-white text-[#285082] shadow-sm relative min-h-screen">

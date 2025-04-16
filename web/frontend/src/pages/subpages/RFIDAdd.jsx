@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, use } from 'react';
 import { Link } from "react-router-dom";
+import { Pencil, Trash2 } from "lucide-react";
 import api from "../../api";
 
 import {
@@ -269,8 +270,6 @@ const RFIDAdd = () => {
     setIsChanged(false);
   };
 
-  
-
 
   return(
     <div className="max-w-6xl mx-auto">
@@ -305,7 +304,7 @@ const RFIDAdd = () => {
       )}
 
       {isReadyToScan && isScanned && (
-        <div className="mx-auto p-6 mt-6 text-[#285082]">
+        <div className="mx-auto p-6 mt-6 text-[#285082] select-none">
 
           <div className="border border-gray-300 mb-6 p-4 rounded-lg">
             
@@ -328,7 +327,7 @@ const RFIDAdd = () => {
                   type="text" 
                   value={boxName}
                   onChange={handleBoxNameChange}
-                  className="w-full border border-[#285082] focus:ring-2 focus:ring-[#285082]/40 focus:outline-none p-2 rounded-md transition"
+                  className="w-full border border-[#285082] p-2 rounded-md transition"
                   placeholder="Enter box name"
                 />
               </div>
@@ -368,7 +367,7 @@ const RFIDAdd = () => {
                                 className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-100 text-blue-600 hover:bg-blue-200 transition"
                                 title="Edit"
                               >
-                                ✏️
+                                <Pencil size={18} />
                               </button>
                               <button
                                 type="button"
@@ -376,7 +375,7 @@ const RFIDAdd = () => {
                                 className="w-8 h-8 flex items-center justify-center rounded-full bg-red-100 text-red-600 hover:bg-red-200 transition"
                                 title="Delete"
                               >
-                                ❌
+                                <Trash2 size={18} />
                               </button>
                             </div>
                           </li>
@@ -391,7 +390,7 @@ const RFIDAdd = () => {
           </div>
 
           {/* Add Item Form */}
-          <div className="border border-gray-300 rounded-lg p-6 bg-white shadow-sm">
+          <div className="border border-gray-300 rounded-lg p-6 bg-white">
             <h2 className="text-xl font-bold mb-4">Add New Item</h2>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <input

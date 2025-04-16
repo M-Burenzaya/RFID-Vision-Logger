@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from "react-router-dom";
+import api from "../../api";
 
 const VisionList = () => {
   const [users, setUsers] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch("http://localhost:8000/users")
-      .then(res => res.json())
-      .then(setUsers);
+    api.get("/users")
+      .then(res => setUsers(res.data))
+      .catch(err => console.error("Failed to fetch users:", err));
   }, []);
 
   const capitalizeName = (name) =>

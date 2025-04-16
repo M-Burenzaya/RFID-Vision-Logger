@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, use } from 'react';
+import { RotateCcw, RotateCw, FlipHorizontal, FlipVertical } from "lucide-react";
 import classNames from 'classnames';
 import api from "../../api";
 
@@ -20,18 +21,20 @@ const VisionSettings = () => {
 
   const placeholderImage = "/default-placeholder.svg";
 
-
+  // console.log("Component rendered");
   // Establish WebSocket connection
   useEffect(() => {
+    // console.log("Effect mounted");
+    const socketRef = { current: null };
+
     const timer = setTimeout(() => {
 
       const socket = new WebSocket("ws://localhost:8000/ws");
-
       // Hope this handle open event
       socket.onopen = () => {
         setConnectionStatus("Connected");
         console.log("WebSocket connected using custom function yay!!!");
-        console.log(imageSrc);
+        // console.log(imageSrc);
       };
 
       // When a message is received
@@ -92,22 +95,17 @@ const VisionSettings = () => {
 
       // Set WebSocket instance in state
       setWs(socket);
-
-      // const handleUnload = () => {
-      //   const payload = JSON.stringify({ reason: "page_unload", time: Date.now() });
-      //   navigator.sendBeacon("http://localhost:8000/disconnected", payload);
-      // };
-  
-      // window.addEventListener("beforeunload", handleUnload);
-  
-      // Cleanup
-      return () => {
-        if (socket)
-          socket.close();
-        // window.removeEventListener("beforeunload", handleUnload);
-      };
+      socketRef.current = socket;
     }, 500);
-    return () => clearTimeout(timer);
+
+    // Cleanup
+    return () => {
+      clearTimeout(timer);
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        console.log("Cleaning up WebSocket. Current state:", socketRef.current.readyState);
+        socketRef.current.close();
+      }
+    };
 
   }, []);
 
@@ -323,27 +321,31 @@ const VisionSettings = () => {
             <div className="absolute top-3 right-3 flex gap-2 z-10">
               <button 
                 onClick={handleRotateCCW}
-                className="text-xs px-2 py-1 bg-white/80 border rounded hover:bg-white"
+                className="p-2 bg-white/80 border rounded hover:bg-white"
+                title="Rotate CCW"
               >
-                ⟲ CCW
+                <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6" />
               </button>
               <button 
                 onClick={handleRotateCW}
-                className="text-xs px-2 py-1 bg-white/80 border rounded hover:bg-white"
+                className="p-2 bg-white/80 border rounded hover:bg-white"
+                title="Rotate CW"
               >
-                CW ⟳
+                <RotateCw className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6"  />
               </button>
               <button 
                 onClick={handleFlipHorizontal}
-                className="text-xs px-2 py-1 bg-white/80 border rounded hover:bg-white"
+                className="p-2 bg-white/80 border rounded hover:bg-white"
+                title="Flip Horizontal"
               >
-                ↔ Flip H
+                <FlipHorizontal className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6"  />
               </button>
               <button 
                 onClick={handleFlipVertical}
-                className="text-xs px-2 py-1 bg-white/80 border rounded hover:bg-white"
+                className="p-2 bg-white/80 border rounded hover:bg-white"
+                title="Flip Vertical"
               >
-                ↕ Flip V
+                <FlipVertical className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6"  />
               </button>
             </div>
 
