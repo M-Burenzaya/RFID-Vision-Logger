@@ -19,7 +19,13 @@ const VisionAdd = () => {
   
   const navigate = useNavigate();
   const passedUser = location.state;
-  const cameFromList = passedUser !== undefined;
+  const cameFromList = passedUser?.fromList === true;
+
+  const [countdown, setCountdown] = useState(null);
+  const [countdownActive, setCountdownActive] = useState(false);
+  const [isFaceCentered, setIsFaceCentered] = useState(false);
+
+
 
 
   const placeholderImage = "/default-placeholder.svg";
@@ -35,15 +41,61 @@ const VisionAdd = () => {
     }
   }, [passedUser]);
   
+  useEffect(() => {
+    const delayDebounce = setTimeout(async () => {
+      if (!passedUser && name.trim()) {
+        try {
+          const response = await api.get(`/check-user?name=${encodeURIComponent(name.trim())}`);
+          if (response.status === 200 && response.data.exists) {
+            setIsEditMode(true);
+            setUserId(response.data.id);
+            alert("User with this name already exists. You can edit instead.");
+          } else {
+            setIsEditMode(false);
+            setUserId(null);
+          }
+        } catch (error) {
+          console.error("Error checking user:", error);
+        }
+      }
+    }, 3000); // 3s debounce
+  
+    return () => clearTimeout(delayDebounce);
+  }, [name]);
 
   useEffect(() => {
-    if (passedUser) {
-      setName(passedUser.name || "");
-      setImageSrc(`http://localhost:8000${passedUser.image_url}`);
-      setHasCaptured(true);
-      setIsAdding(true);
+    if (isFaceCentered) {
+      if (!countdownActive && countdown === null) {
+        console.log("Face centered, starting countdown");
+        setCountdownActive(true);
+        setCountdown(3);
+      }
+    } else {
+      if (countdownActive || countdown !== null) {
+        console.log("Face lost, canceling countdown");
+        setCountdownActive(false);
+        setCountdown(null);
+      }
     }
-  }, [passedUser]);
+  }, [isFaceCentered]);
+
+  useEffect(() => {
+    if (!countdownActive || countdown === null) return;
+  
+    if (countdown === 0) {
+      triggerOnce();
+      setCountdown(null);
+      setCountdownActive(false);
+      return;
+    }
+  
+    const timer = setTimeout(() => {
+      setCountdown(prev => prev - 1);
+    }, 1000);
+  
+    return () => clearTimeout(timer);
+  }, [countdown, countdownActive]);
+  
 
   // Establish WebSocket connection
   // console.log("Component rendered");
@@ -66,20 +118,16 @@ const VisionAdd = () => {
         if (typeof event.data === "string") {
           const json = JSON.parse(event.data);
           if (json.type === "auto_trigger") {
-            // console.log("Auto-trigger signal:", json.status);
-            if (json.status) {
-              triggerOnce();
+            if (json.status) { // face centered
+              setIsFaceCentered(true); // ✅ only this
+            } else { // face not centered
+              setIsFaceCentered(false); // ✅ only this
             }
           }
         } else if (event.data instanceof Blob) {
           const url = URL.createObjectURL(event.data);
-          // console.log(url);
           setImageSrc(url);
         }
-
-        // setTimeout(() => {
-        //   URL.revokeObjectURL(url);  // Free memory used by the previous URL
-        // }, 1000);
       };
 
       // When an error occurs
@@ -150,7 +198,16 @@ const VisionAdd = () => {
     setName("");
   
     if (ws && ws.readyState === WebSocket.OPEN) {
+
       triggerContinuous(); // ✅ Safe to call
+
+      if (!autoCapture) {
+        handleAutoCaptureToggle();
+      }
+      if (!showFeatures) {
+        handleFeatureToggle();
+      }
+
     } else {
       updateDebugConsole("Waiting for WebSocket to connect...");
       const checkReady = setInterval(() => {
@@ -167,6 +224,10 @@ const VisionAdd = () => {
     if (hasCaptured) {
       triggerContinuous();
       setHasCaptured(false);
+      
+      setCountdown(null);       // Reset countdown
+      setCountdownActive(false);
+      setIsFaceCentered(false); // Assume face is not centered yet
     } else {
       triggerOnce();
     }
@@ -186,6 +247,11 @@ const VisionAdd = () => {
   const handleAddUserClick = async () => {
     if (name.trim() === "") {
       alert("Please enter a name.");
+      return;
+    }
+  
+    if (!hasCaptured) {
+      alert("Please capture an image before saving.");
       return;
     }
   
@@ -213,7 +279,7 @@ const VisionAdd = () => {
         setIsEditMode(false);
         setUserId(null);
       }
-
+  
     } catch (error) {
       console.error("Error saving user:", error);
       alert("Failed to save user.");
@@ -256,6 +322,11 @@ const VisionAdd = () => {
         <div className="flex flex-col items-start lg:flex-row md:space-x-6 lg:space-x-12 max-w-6xl mx-auto">
           <div className="max-w-2xl w-full lg:w-[150vw] mb-2 lg:mb-8 mt-4 lg:mt-8">
             <div className="relative border rounded-md overflow-hidden">
+              {countdownActive && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black opacity-30 text-white text-6xl font-bold z-20">
+                  {countdown}
+                </div>
+              )}
               {!hasCaptured && (
                 <img
                   src="/portrait_guide_overlay.svg"

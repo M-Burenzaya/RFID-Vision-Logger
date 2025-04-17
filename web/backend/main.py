@@ -1,5 +1,5 @@
 from fastapi import FastAPI, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
-from fastapi import Path, Body
+from fastapi import Path, Query, Body
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -379,6 +379,10 @@ def scan_rfid():
     # print("[INFO] Scanning for RFID card...")
     success, result = reader.scan_rfid()
 
+    if result == "Stopped by client":
+        # Return HTTP 200 so the client sees this as a normal stop event
+        return {"message": "Scan stopped by client."}
+
     if success:
         return {"message": "RFID card detected.", "uid": result["uid"]}
     else:
@@ -388,6 +392,11 @@ def scan_rfid():
 def scan_rfid_continuous():
     """Scans for an RFID card continuously until detected"""
     success, result = reader.scan_rfid(continuous=True)
+
+    if result == "Stopped by client":
+        # Return HTTP 200 so the client sees this as a normal stop event
+        return {"message": "Scan stopped by client."}
+    
     if success:
         return {"message": "RFID card detected.", "uid": result["uid"]}
     else:
@@ -449,6 +458,7 @@ async def trigger_once():
     global is_continuous_capture
     is_continuous_capture = False
     """Handles the trigger action when the frontend clicks 'Trigger Once'"""
+    clear_all_queues()
     try:
         # Capture the image using the CameraReader
         image = camera.capture_image()
@@ -499,6 +509,8 @@ async def stop_continuous_capture():
         return {"message": "Continuous capture already stopped."}
 
     is_continuous_capture = False
+
+
     return {"message": "Continuous capture stopped."}
 
 
@@ -516,6 +528,7 @@ async def start_continuous_capture(background_tasks: BackgroundTasks):
         return {"message": "Already running continuous capture."}
 
     is_continuous_capture = True
+    clear_all_queues()
     background_tasks.add_task(continuous_capture)
     return {"message": "Continuous capture started."}
 
@@ -530,7 +543,7 @@ async def continuous_capture():
     last_recognition_result = {"name": None, "distance": None}
 
     """Function that continuously captures and sends images."""
-    while is_continuous_capture and not auto_trigger_capture:
+    while is_continuous_capture:
 
         if connected_ws is None:
             print("Frontend disconnected. Stopping continuous capture.")
@@ -628,8 +641,9 @@ async def continuous_capture():
                 if error_magnitude < THRESHOLD:
                     # 4. Trigger capture
                     auto_trigger_capture = True
-                    is_continuous_capture = False
-                
+                else:
+                    auto_trigger_capture = False
+
             #---------------------------------------------
             # Convert the image to bytes (as a Blob)
             if is_show_features and not auto_trigger_capture :
@@ -649,15 +663,6 @@ async def continuous_capture():
             print(f"Error occurred while capturing or sending image: {str(e)}")
 
         await asyncio.sleep(1 / 30)  # 30 FPS
-
-    try:
-        face_detection_queue.queue.clear()
-        face_detection_result_queue.queue.clear()
-        # face_embedding_queue.queue.clear()
-        # face_embedding_result_queue.queue.clear()
-        # print("✅ All queues cleared after continuous capture.")
-    except Exception as e:
-        print(f"⚠️ Failed to clear queues: {e}")
 
 def face_detection_worker():
     while True:
@@ -930,3 +935,27 @@ def update_user(user_id: int, user: UserCreate, db: Session = Depends(get_db)):
 
     db.commit()
     return {"message": f"User '{normalized_name}' updated successfully"}
+
+@app.get("/check-user")
+def check_user(name: str = Query(...)):
+    db = SessionLocal()
+    normalized_name = name.strip().lower()
+    user = db.query(User).filter(User.name == normalized_name).first()
+    db.close()
+
+    if user:
+        return {"exists": True, "id": user.id}
+    else:
+        return {"exists": False}
+
+def clear_all_queues():
+    try:
+        face_detection_queue.queue.clear()
+        face_detection_result_queue.queue.clear()
+        face_embedding_queue.queue.clear()
+        face_embedding_result_queue.queue.clear()
+        face_recognition_queue.queue.clear()
+        face_recognition_result_queue.queue.clear()
+        print("All queues cleared.")
+    except Exception as e:
+        print(f"Failed to clear queues on stop: {e}")

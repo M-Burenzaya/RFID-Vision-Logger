@@ -23,7 +23,7 @@ const VisionList = () => {
       ...user,
       name: capitalizeName(user.name),
     };
-    navigate("../add", { state: capitalizedUser });
+    navigate("../add", { state: { ...capitalizedUser, fromList: true } });
   };
 
   return (

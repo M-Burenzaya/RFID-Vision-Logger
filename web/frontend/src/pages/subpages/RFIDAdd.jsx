@@ -49,7 +49,6 @@ const RFIDAdd = () => {
     } else {
       // UID is passed from navigation → Edit mode
       setUid(passedUid);
-      setIsReadyToScan(true);
       setIsScanned(true);
       setIsReadyToScan(true);  // Important to show UI
       fetchBoxByUid(passedUid);
@@ -60,6 +59,7 @@ const RFIDAdd = () => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      handleStopScan();
     };
   }, []);
 
@@ -117,12 +117,15 @@ const RFIDAdd = () => {
     // console.log("Step 3");
     if (mountedRef.current && success) {
       await handleScan();
+      // console.log("[INFO] Scan result:", result);
     }
   };
 
   const initializeRFID = async () => {
-    const response = await api.post("/stopscan");
+
+    await handleStopScan();
     // console.log("Step 1");
+
     const closeSuccess = await handleClose();
   
     if (closeSuccess) {
@@ -194,15 +197,27 @@ const RFIDAdd = () => {
 
         await fetchBoxByUid(scannedUid);              // <--- fetch box data
 
+        return true;
+
       } else if (response.data?.message) {
         console.log("[INFO]", response.data.message);
       }
+      return false;
     } catch (error) {
       console.log("[ERROR] Failed to scan RFID card.");
 
       if (error.response?.data?.message) {
         console.log("[ERROR] Server error:", error.response.data.message);
       }
+      return false;
+    }
+  };
+
+  const handleStopScan = async () => {
+    try {
+      await api.post('/stopscan');
+    } catch (err) {
+      console.error('Failed to stop scan:', err);
     }
   };
 
