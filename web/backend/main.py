@@ -1,59 +1,44 @@
-from fastapi import FastAPI, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
-from fastapi import Path, Query, Body
-from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+# ========================================================================================
+#                                 Standart libraries
+# ========================================================================================
 
-import asyncio
-import json
-
+import threading, queue, math, asyncio, json
 import sys, os
+import cv2
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src')))
-from rfid_reader import RFIDReader
-from camera import CameraReader
+# ========================================================================================
+#                                 3rd party libraries
+# ========================================================================================
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, BackgroundTasks, Request, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import Path, Query, Depends, Body
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response, JSONResponse, FileResponse
+
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from models import RfidBox, Item, User  # These are the models you created
 from database import SessionLocal, init_db
 
-from pydantic import BaseModel
 from typing import List
-import math
 import numpy as np
-
-import threading
-import queue
 
 # Load the InsightFace model globally (once)
 from insightface.app import FaceAnalysis
 from insightface.data import get_image as ins_get_image
 
-# Only load the detection module (fast and lightweight)
-det_model = FaceAnalysis(allowed_modules=['detection'])  
-det_model.prepare(ctx_id=-1, det_size=(160, 160))  # -1 = CPU
+# ========================================================================================
+#                                 Local libraries
+# ========================================================================================
 
-rec_model = FaceAnalysis(name='buffalo_s', allowed_modules=['detection', 'recognition'])
-rec_model.prepare(ctx_id=-1, det_size=(640, 640))
-# print("Modules:", rec_model.models.keys())
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src')))
 
+from rfid_reader import RFIDReader
+from camera import CameraReader
 
-class ItemCreate(BaseModel):
-    item_name: str
-    item_description: str
-    quantity: int
-
-class RfidBoxCreate(BaseModel):
-    uid: str
-    box_name: str
-    items: List[ItemCreate]
-
-class UserCreate(BaseModel):
-    name: str
-
-
-import cv2
+# ========================================================================================
+#                            Global constants and variables
+# ========================================================================================
 
 init_db()
 
@@ -91,21 +76,15 @@ is_auto_capture = False
 
 connected_ws = None
 
+known_embeddings = []
+
+# ========================================================================================
+#                                Starting FastAPI, RFID and Camera
+# ========================================================================================
+
 reader = RFIDReader()
 camera = CameraReader(main_resolution=(512, 512))
 app = FastAPI()
-
-@app.on_event("startup")
-def start_worker_threads():
-    threading.Thread(target=face_detection_worker, daemon=True).start()
-    threading.Thread(target=face_embedding_worker, daemon=True).start()
-    threading.Thread(target=face_recognition_worker, daemon=True).start()
-    print("✅ Face detection thread started.")
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-image_directory = os.path.join(current_dir, "images")
-os.makedirs(image_directory, exist_ok=True)
-image_path = os.path.join(image_directory, "captured_image.jpg")
 
 # Allow React frontend (adjust origin if needed)
 app.add_middleware(
@@ -115,6 +94,48 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ========================================================================================
+#                                Load InsightFace model
+# ========================================================================================
+
+# Only load the detection module (fast and lightweight)
+det_model = FaceAnalysis(allowed_modules=['detection'])  
+det_model.prepare(ctx_id=-1, det_size=(160, 160))  # -1 = CPU
+
+rec_model = FaceAnalysis(name='buffalo_s', allowed_modules=['detection', 'recognition'])
+rec_model.prepare(ctx_id=-1, det_size=(640, 640))
+# print("Modules:", rec_model.models.keys())
+
+
+class ItemCreate(BaseModel):
+    item_name: str
+    item_description: str
+    quantity: int
+
+class RfidBoxCreate(BaseModel):
+    uid: str
+    box_name: str
+    items: List[ItemCreate]
+
+class UserCreate(BaseModel):
+    name: str
+
+
+
+@app.on_event("startup")
+def start_worker_threads():
+    threading.Thread(target=face_detection_worker, daemon=True).start()
+    threading.Thread(target=face_recognition_worker, daemon=True).start()
+    print("✅ Face detection thread started.")
+
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+image_directory = os.path.join(current_dir, "images")
+os.makedirs(image_directory, exist_ok=True)
+image_path = os.path.join(image_directory, "captured_image.jpg")
+
+
 
 # For POST /read and /write requests
 class BlockData(BaseModel):
@@ -131,25 +152,6 @@ def get_flip_code(flip_horizontal: bool, flip_vertical: bool):
     else:
         return None  # no flip
 
-# Shared counter (in-memory)
-counter = {"value": 0}
-
-@app.get("/counter")
-def get_counter():
-    """Returns the current counter value"""
-    return {"value": counter["value"]}
-
-@app.post("/increment")
-def increment_counter():
-    """Increments the counter value"""
-    counter["value"] += 1
-    return {"value": counter["value"]}
-
-@app.post("/decrement")
-def decrement_counter():
-    """Decrements the counter value"""
-    counter["value"] -= 1
-    return {"value": counter["value"]}
 
 # Dependency to get the database session
 def get_db():
@@ -166,7 +168,8 @@ def load_all_embeddings(db: Session):
     for user in users:
         if user.face_encoding:
             emb = np.frombuffer(user.face_encoding, dtype=np.float32)
-            print(f"User: {user.name}, Embedding shape: {emb.shape}, First 5 values: {emb[:5]}")
+            length = np.linalg.norm(emb)  # <-- Length of the embedding
+            print(f"User: {user.name}, Embedding shape: {emb.shape}, Length: {length:.4f}, First 5 values: {emb[:5]}")
             embeddings.append((user.name, emb))
 
     return embeddings
@@ -289,168 +292,7 @@ def delete_box(box_id: int = Path(...), db: Session = Depends(get_db)):
     return {"message": "Box deleted successfully"}
 
 
-# Initialize
-@app.post("/initialize")
-def initialize_rfid():
-    """Initializes the RFID reader"""
-    try:
-        success, error = reader.initialize_rfid()
-        if success:
-            return JSONResponse(
-                status_code=200,
-                content={"message": "RFID reader initialized."}
-            )
-        else:
-            return JSONResponse(
-                status_code=500,
-                content={"message": f"Failed to initialize RFID reader: {error}"}
-            )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"message": f"Exception while initializing: {e}"}
-        )
 
-# Halt
-@app.post("/halt")
-def halt_rfid():
-    """Halts communication with the RFID card"""
-    try:
-        success, error = reader.halt_rfid()
-        if success:
-            return JSONResponse(
-                status_code=200,
-                content={"message": "Communication halted."}
-            )
-        else:
-            return JSONResponse(
-                status_code=500,
-                content={"message": f"Failed to halt communication: {error}"}
-            )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"message": f"Exception while halting: {e}"}
-        )
-
-# Reset
-@app.post("/reset")
-def reset_rfid():
-    """Resets the RFID reader"""
-    try:
-        success, error = reader.reset_rfid()
-        if success:
-            return {"message": "RFID reader has been reset."}
-        else:
-            return JSONResponse(
-                status_code=500,
-                content={"message": f"Failed to reset RFID reader: {error}"}
-            )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"message": f"Exception while resetting: {e}"}
-        )
-
-# Close
-@app.post("/close")
-def close_rfid():
-    """Closes the RFID reader"""
-    try:
-        success, error = reader.close_rfid()
-        if success:
-            return {"message": "RFID reader closed successfully."}
-        else:
-            return JSONResponse(
-                status_code=500,
-                content={"message": f"Failed to close RFID reader: {error}"}
-            )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"message": f"Failed to close RFID reader: {e}"}
-        )
-
-
-# Scan
-@app.post("/scan")
-def scan_rfid():
-    """Scans for an RFID card and returns UID"""
-    # print("[INFO] Scanning for RFID card...")
-    success, result = reader.scan_rfid()
-
-    if result == "Stopped by client":
-        # Return HTTP 200 so the client sees this as a normal stop event
-        return {"message": "Scan stopped by client."}
-
-    if success:
-        return {"message": "RFID card detected.", "uid": result["uid"]}
-    else:
-        return JSONResponse(status_code=500, content={"message": result})
-
-@app.post("/scancont")
-def scan_rfid_continuous():
-    """Scans for an RFID card continuously until detected"""
-    success, result = reader.scan_rfid(continuous=True)
-
-    if result == "Stopped by client":
-        # Return HTTP 200 so the client sees this as a normal stop event
-        return {"message": "Scan stopped by client."}
-    
-    if success:
-        return {"message": "RFID card detected.", "uid": result["uid"]}
-    else:
-        return JSONResponse(status_code=500, content={"message": result})
-    
-@app.post("/stopscan")
-def stop_scan():
-    reader.stop_scan = True
-    return {"message": "Scan stopped"}
-
-# Read
-@app.post("/read")
-async def read_rfid(request: Request):
-    """Reads data from a specified RFID block"""
-    try:
-        body = await request.json()
-        block = body.get("block", 8)  # default to block 8 if not provided
-        success, result = reader.read_rfid(block=block)
-
-        if success:
-            return {
-                "message": "Card read successfully.",
-                "uid": result["uid"],
-                "data": result["data"]
-            }
-        else:
-            return JSONResponse(status_code=500, content={"message": result})
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"message": str(e)})
-
-
-# Write
-@app.post("/write")
-async def write_rfid(request: Request):
-    try:
-        body = await request.json()
-        block = int(body.get("block"))
-        data_str = body.get("data", "")
-
-        success, result, error = reader.write_rfid(block, data_str)
-
-        if success:
-            return {
-                "message": "Data written successfully.",
-                "uid": result["uid"],
-                "block": result["block"]
-            }
-        else:
-            return JSONResponse(
-                status_code=500,
-                content={"message": "Failed to write RFID card.", "error": error}
-            )
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"message": str(e)})
 
 @app.post("/triggerOnce")
 async def trigger_once():
@@ -573,7 +415,7 @@ async def continuous_capture():
             if is_show_features or is_auto_capture:
                 try:
                     if face_detection_queue.empty():
-                        face_detection_queue.put_nowait(processed_image.copy())
+                        face_detection_queue.put_nowait(image.copy())
                 except queue.Full:
                     pass
 
@@ -636,7 +478,7 @@ async def continuous_capture():
                 error_magnitude = math.sqrt(dx**2 + dy**2)
 
                 # 3. Threshold comparison
-                THRESHOLD = 15  # you can tune this value
+                THRESHOLD = 20  # you can tune this value
 
                 if error_magnitude < THRESHOLD:
                     # 4. Trigger capture
@@ -678,29 +520,6 @@ def face_detection_worker():
         finally:
             face_detection_queue.task_done()
 
-def face_embedding_worker():
-    while True:
-        image = face_embedding_queue.get()
-        try:
-            face = det_model.get(image, max_num=1)
-
-            for face in face:
-                embedding = face[0].embedding
-                embedding.append({
-                    'bbox': face.bbox,
-                    'embedding': embedding
-                })
-
-            if face_embedding_result_queue.full():
-                face_embedding_result_queue.get_nowait()
-            face_embedding_result_queue.put_nowait(embedding)
-
-        except Exception as e:
-            print("Embedding worker error:", e)
-        finally:
-            face_detection_result_queue.task_done()
-
-
 def face_recognition_worker():
     db = next(get_db())  # Get DB session from generator
     known_embeddings = load_all_embeddings(db)  # [(name, np_embedding), ...]
@@ -708,13 +527,15 @@ def face_recognition_worker():
     while True:
         image = face_recognition_queue.get()
         try:
-            face = rec_model.get(image, max_num=1)
+            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            face = rec_model.get(rgb_image, max_num=1)
 
             if not face:
                 face_recognition_result_queue.put_nowait(None)
                 continue
 
             embedding = face[0].embedding
+            embedding = embedding / np.linalg.norm(embedding)
 
             # Find best match
             best_match = None
@@ -726,7 +547,7 @@ def face_recognition_worker():
                     best_match = name
 
             # Threshold for "recognition"
-            THRESHOLD = 20.0
+            THRESHOLD = 1.0
             if best_distance < THRESHOLD:
                 result = {"name": best_match, "distance": best_distance}
             else:
@@ -759,67 +580,15 @@ async def set_auto_capture(data: AutoCaptureRequest):
     return {"is_auto_capture": is_auto_capture}
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    global connected_ws  # Use the global variable
-    global is_continuous_capture
 
-    # if connected_ws is not None:
-    #     await connected_ws.close()
-    #     is_continuous_capture = False
 
-    await websocket.accept()
-    connected_ws = websocket  # Store the WebSocket connection
+@app.post("/reload-embeddings")
+def reload_embeddings():
+    global known_embeddings
+    db = next(get_db())
+    known_embeddings = load_all_embeddings(db)
+    return {"message": "Embeddings reloaded"}
 
-    try:
-        while True:
-            # Keep the connection alive
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        # print("Client disconnected")
-        is_continuous_capture = False
-        connected_ws = None  # Reset the WebSocket connection when disconnected
-
-# @app.post("/disconnected")
-# async def frontend_disconnected(request: Request):
-#     data = await request.json()
-#     global is_continuous_capture
-
-#     print("Frontend disconnected:", data)
-#     is_continuous_capture = False
-#     return {"message": "Goodbye acknowledged"}
-
-@app.post("/rotateCW")
-def rotate_clockwise():
-    global rotation_angle
-    rotation_angle = (rotation_angle + 90) % 360
-    return {"rotation_angle": rotation_angle}
-
-@app.post("/rotateCCW")
-def rotate_counterclockwise():
-    global rotation_angle
-    rotation_angle = (rotation_angle - 90) % 360
-    return {"rotation_angle": rotation_angle}
-
-@app.post("/flipH")
-def set_flip_horizontal():
-    global flip_horizontal
-    flip_horizontal = not flip_horizontal  # toggle
-    return {"flip_horizontal": flip_horizontal}
-
-@app.post("/flipV")
-def set_flip_vertical():
-    global flip_vertical
-    flip_vertical = not flip_vertical  # toggle
-    return {"flip_vertical": flip_vertical}
-
-#----------------------------------------Get Requests----------------------------------------------------------
-@app.get("/vision-settings")
-def get_vision_settings():
-    return {
-        "is_show_features": is_show_features,
-        "is_auto_capture": is_auto_capture
-    }
 
 @app.post("/add-user")
 def add_user(user: UserCreate, db: Session = Depends(get_db)):
@@ -851,6 +620,7 @@ def add_user(user: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="No face detected in image.")
 
     embedding = faces[0].embedding
+    embedding = embedding / np.linalg.norm(embedding)
     embedding_blob = embedding.astype(np.float32).tobytes()
 
     # Save to DB
@@ -862,6 +632,8 @@ def add_user(user: UserCreate, db: Session = Depends(get_db)):
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
+
+    reload_embeddings()
 
     return {"message": f"User '{normalized_name}' added", "user_id": db_user.id}
 
@@ -881,7 +653,15 @@ def get_users(db: Session = Depends(get_db)):
 def get_user_image(filename: str):
     image_path = os.path.join(image_directory, filename)
     if os.path.exists(image_path):
-        return FileResponse(image_path, media_type="image/jpeg")
+        with open(image_path, "rb") as f:
+            content = f.read()
+        return Response(
+            content=content,
+            media_type="image/jpeg",
+            headers={
+                "Access-Control-Allow-Origin": "*",  # <--- SUPER IMPORTANT!
+            }
+        )
     else:
         raise HTTPException(status_code=404, detail="Image not found")
 
@@ -911,7 +691,7 @@ def update_user(user_id: int, user: UserCreate, db: Session = Depends(get_db)):
     db_user.image_filename = new_filename
 
     global captured_image
-    if captured_image:
+    if captured_image is not None:
         # Save new captured image
         cv2.imwrite(new_image_path, captured_image)
 
@@ -922,6 +702,7 @@ def update_user(user_id: int, user: UserCreate, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="No face found")
 
         embedding = faces[0].embedding
+        embedding = embedding / np.linalg.norm(embedding)
         db_user.face_encoding = embedding.astype(np.float32).tobytes()
 
         # Optionally delete the old file if filename changed
@@ -934,7 +715,24 @@ def update_user(user_id: int, user: UserCreate, db: Session = Depends(get_db)):
             os.rename(old_image_path, new_image_path)
 
     db.commit()
+
+    reload_embeddings()
+
     return {"message": f"User '{normalized_name}' updated successfully"}
+
+@app.delete("/delete-user/{user_id}")
+def delete_user(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db.delete(user)
+    db.commit()
+
+    reload_embeddings()
+
+    return {"message": "User deleted successfully"}
+
 
 @app.get("/check-user")
 def check_user(name: str = Query(...)):
@@ -959,3 +757,231 @@ def clear_all_queues():
         print("All queues cleared.")
     except Exception as e:
         print(f"Failed to clear queues on stop: {e}")
+
+# ========================================================================================
+#                                 Websocket Endpoints
+# ========================================================================================
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    global connected_ws  # Use the global variable
+    global is_continuous_capture
+    global captured_image
+
+    await websocket.accept()
+    connected_ws = websocket  # Store the WebSocket connection
+
+    try:
+        while True:
+            # Keep the connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        # print("Client disconnected")
+        is_continuous_capture = False
+        connected_ws = None  # Reset the WebSocket connection when disconnected
+        captured_image = None
+
+# ========================================================================================
+#                                 Vision Settings Endpoints
+# ========================================================================================
+
+# ---------------------------------------POST Requests------------------------------------
+@app.post("/rotateCW")
+def rotate_clockwise():
+    global rotation_angle
+    rotation_angle = (rotation_angle + 90) % 360
+    return {"rotation_angle": rotation_angle}
+
+@app.post("/rotateCCW")
+def rotate_counterclockwise():
+    global rotation_angle
+    rotation_angle = (rotation_angle - 90) % 360
+    return {"rotation_angle": rotation_angle}
+
+@app.post("/flipH")
+def set_flip_horizontal():
+    global flip_horizontal
+    flip_horizontal = not flip_horizontal  # toggle
+    return {"flip_horizontal": flip_horizontal}
+
+@app.post("/flipV")
+def set_flip_vertical():
+    global flip_vertical
+    flip_vertical = not flip_vertical  # toggle
+    return {"flip_vertical": flip_vertical}
+
+#----------------------------------------GET Requests-------------------------------------
+@app.get("/vision-settings")
+def get_vision_settings():
+    return {
+        "is_show_features": is_show_features,
+        "is_auto_capture": is_auto_capture
+    }
+
+# ========================================================================================
+#                                     RFID Reader Endpoints
+# ========================================================================================
+
+# ------------------------------------   Initialize   ------------------------------------
+@app.post("/initialize")
+def initialize_rfid():
+    """Initializes the RFID reader"""
+    try:
+        success, error = reader.initialize_rfid()
+        if success:
+            return JSONResponse(
+                status_code=200,
+                content={"message": "RFID reader initialized."}
+            )
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"message": f"Failed to initialize RFID reader: {error}"}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Exception while initializing: {e}"}
+        )
+
+# ------------------------------------   Halt   ------------------------------------------
+@app.post("/halt")
+def halt_rfid():
+    """Halts communication with the RFID card"""
+    try:
+        success, error = reader.halt_rfid()
+        if success:
+            return JSONResponse(
+                status_code=200,
+                content={"message": "Communication halted."}
+            )
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"message": f"Failed to halt communication: {error}"}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Exception while halting: {e}"}
+        )
+
+# ------------------------------------   Reset   ----------------------------------------
+@app.post("/reset")
+def reset_rfid():
+    """Resets the RFID reader"""
+    try:
+        success, error = reader.reset_rfid()
+        if success:
+            return {"message": "RFID reader has been reset."}
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"message": f"Failed to reset RFID reader: {error}"}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Exception while resetting: {e}"}
+        )
+
+# ------------------------------------   Close   ----------------------------------------
+@app.post("/close")
+def close_rfid():
+    """Closes the RFID reader"""
+    try:
+        success, error = reader.close_rfid()
+        if success:
+            return {"message": "RFID reader closed successfully."}
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"message": f"Failed to close RFID reader: {error}"}
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"message": f"Failed to close RFID reader: {e}"}
+        )
+
+
+# ------------------------------------   Scan   -----------------------------------------
+@app.post("/scan")
+def scan_rfid():
+    """Scans for an RFID card and returns UID"""
+    # print("[INFO] Scanning for RFID card...")
+    success, result = reader.scan_rfid()
+
+    if result == "Stopped by client":
+        # Return HTTP 200 so the client sees this as a normal stop event
+        return {"message": "Scan stopped by client."}
+
+    if success:
+        return {"message": "RFID card detected.", "uid": result["uid"]}
+    else:
+        return JSONResponse(status_code=500, content={"message": result})
+
+# ------------------------------------   Scan Cont   -------------------------------------
+@app.post("/scancont")
+def scan_rfid_continuous():
+    """Scans for an RFID card continuously until detected"""
+    success, result = reader.scan_rfid(continuous=True)
+
+    if result == "Stopped by client":
+        # Return HTTP 200 so the client sees this as a normal stop event
+        return {"message": "Scan stopped by client."}
+    
+    if success:
+        return {"message": "RFID card detected.", "uid": result["uid"]}
+    else:
+        return JSONResponse(status_code=500, content={"message": result})
+
+# ------------------------------------   Stop Scan   -----------------------------------
+@app.post("/stopscan")
+def stop_scan():
+    reader.stop_scan = True
+    return {"message": "Scan stopped"}
+
+# ------------------------------------   Read   ---------------------------------------
+@app.post("/read")
+async def read_rfid(request: Request):
+    """Reads data from a specified RFID block"""
+    try:
+        body = await request.json()
+        block = body.get("block", 8)  # default to block 8 if not provided
+        success, result = reader.read_rfid(block=block)
+
+        if success:
+            return {
+                "message": "Card read successfully.",
+                "uid": result["uid"],
+                "data": result["data"]
+            }
+        else:
+            return JSONResponse(status_code=500, content={"message": result})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": str(e)})
+
+
+# ------------------------------------   Write   --------------------------------------
+@app.post("/write")
+async def write_rfid(request: Request):
+    try:
+        body = await request.json()
+        block = int(body.get("block"))
+        data_str = body.get("data", "")
+
+        success, result, error = reader.write_rfid(block, data_str)
+
+        if success:
+            return {
+                "message": "Data written successfully.",
+                "uid": result["uid"],
+                "block": result["block"]
+            }
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"message": "Failed to write RFID card.", "error": error}
+            )
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": str(e)})

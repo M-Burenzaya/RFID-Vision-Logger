@@ -101,6 +101,14 @@ const VisionAdd = () => {
   // console.log("Component rendered");
   useEffect(() => {
     const socketRef = { current: null };
+    fetchSettings();
+
+    if (!autoCapture) {
+      handleAutoCaptureToggle();
+    }
+    if (!showFeatures) {
+      handleFeatureToggle();
+    }
     // console.log("Effect mounted");
     const timer = setTimeout(() => {
 
@@ -157,6 +165,16 @@ const VisionAdd = () => {
 
   }, []);
 
+  const fetchSettings = async () => {
+    try {
+      const response = await api.get("/vision-settings");
+      setShowFeatures(response.data.is_show_features);
+      setAutoCapture(response.data.is_auto_capture);
+    } catch (error) {
+      console.error("Failed to fetch vision settings:", error);
+    }
+  };
+
   const triggerOnce = async () => {
     try {
       const response = await api.post("/triggerOnce");
@@ -198,16 +216,8 @@ const VisionAdd = () => {
     setName("");
   
     if (ws && ws.readyState === WebSocket.OPEN) {
-
       triggerContinuous(); // ✅ Safe to call
-
-      if (!autoCapture) {
-        handleAutoCaptureToggle();
-      }
-      if (!showFeatures) {
-        handleFeatureToggle();
-      }
-
+      
     } else {
       updateDebugConsole("Waiting for WebSocket to connect...");
       const checkReady = setInterval(() => {
