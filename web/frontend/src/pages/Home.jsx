@@ -5,11 +5,14 @@ import api from "../api";
 
 
 const HomePage = () => {
-  const [isCreatingLog, setIsCreatingLog] = useState(false);
-
-  const [imageSrc, setImageSrc] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState("Disconnected");
   const [ws, setWs] = useState(null);
+  const [imageSrc, setImageSrc] = useState(null);
+
+  const [isCreatingLog, setIsCreatingLog] = useState(false);
+  const [isPersonFound, setIsPersonFound] = useState(false);
+
+  const isAddingPerson = useRef(false);
 
   const [isFaceCentered, setIsFaceCentered] = useState(false);
   const [countdown, setCountdown] = useState(null);
@@ -26,6 +29,8 @@ const HomePage = () => {
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const searchRef = useRef(null);  // 👈 Create ref for search area
+
+  const [manualAdding, setManualAdding] = useState(false); // 👈 Add new state
 
   const navigate = useNavigate();
 
@@ -74,22 +79,27 @@ const HomePage = () => {
           } else if (json.type === "recognition") {
 
             // console.log("Recognition result:", json.name);
+            
+            if (!isAddingPerson.current) {  
+              // console.log("isAddingPerson:", isAddingPerson);
 
-            if (json.name) {
-              setDetectedName(capitalizeName(json.name));  
-              showSavedImage(json.name);
-            } else {
-              setDetectedName(null);
-            }
+              if (json.name) {
+                setDetectedName(capitalizeName(json.name));
+                setSearchTerm(capitalizeName(json.name));
+                showSavedImage(json.name);
+              } else {
+                setDetectedName(null);
+              }
 
-            setIsRecognitionDone(true);
+              setIsRecognitionDone(true);
 
-            if (json.name) {
-              api.post("/stopContinuous").then(() => {
-                console.log("Continuous capture stopped after recognition");
-              }).catch(err => {
-                console.error("Failed to stop continuous capture:", err);
-              });
+              if (json.name) {
+                api.post("/stopContinuous").then(() => {
+                  console.log("Continuous capture stopped after recognition");
+                }).catch(err => {
+                  console.error("Failed to stop continuous capture:", err);
+                });
+              }
             }
           }
         } else if (event.data instanceof Blob) {
@@ -186,6 +196,14 @@ const HomePage = () => {
     }
   };
 
+  const triggerContinuous = async () => {
+    try {
+      await api.post("/startContinuous");
+    } catch (error) {
+      console.error("Start Continuous Error:", error);
+    }
+  }
+
   const handleConfirmYes = () => {
     setConfirmedPerson(detectedName);
     setShowDropdown(false);  // Hide dropdown if still open
@@ -193,8 +211,16 @@ const HomePage = () => {
   
 
   const handleAnotherPerson = () => {
-    setShowDropdown((prev) => !prev);  // Toggle dropdown menu
+    isAddingPerson.current = true;
+    setManualAdding(true); // 👈 Activate manual adding mode
+
+    setDetectedName(null);
+    setIsRecognitionDone(false);
+    setConfirmedPerson(null);
+    
+    triggerContinuous();
   };
+  
 
   const handleUserSelect = (name) => {
     const capitalizedName = capitalizeName(name);
@@ -231,16 +257,13 @@ const HomePage = () => {
 
   const handleStartLog = async () => {
     setIsCreatingLog(true);
-  
+    
     try {
       await setShowFeatures(true);
       await setAutoCapture(true);
       await fetchUsers();  // <-- Fetch users list when starting!
+      await triggerContinuous();
   
-      const response = await api.post("/startContinuous");
-      if (response.status === 200) {
-        console.log("Continuous capture started");
-      }
     } catch (error) {
       console.error("Failed to start continuous capture", error);
     }
@@ -277,58 +300,64 @@ const HomePage = () => {
           </button>
         </>
       ) : (
+
         <div className="flex flex-col items-center justify-center p-6 space-y-6">
+          
+          {!isAddingPerson.current ? (
+            <div ref={searchRef} className="relative w-80 mb-4">
 
-          <div ref={searchRef} className="relative w-80 mb-4">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search by name..."
-                value={searchTerm}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setSearchTerm(value);
-                  setShowSearchDropdown(true);
+              {/* Search bar */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search by name..."
+                  value={searchTerm}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setSearchTerm(value);
+                    setShowSearchDropdown(true);
 
-                  const filtered = userList.filter(user =>
-                    user.name.toLowerCase().includes(value.toLowerCase())
-                  );
-                  setFilteredUsers(filtered);
-                }}
-                onFocus={() => setShowSearchDropdown(true)}
-                className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring focus:border-blue-300 pr-10"
-              />
+                    const filtered = userList.filter(user =>
+                      user.name.toLowerCase().includes(value.toLowerCase())
+                    );
+                    setFilteredUsers(filtered);
+                  }}
+                  onFocus={() => setShowSearchDropdown(true)}
+                  className="w-full px-4 py-2 border rounded-md focus:outline-none focus:ring focus:border-blue-300 pr-10"
+                />
 
-              {/* Search icon */}
-              <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
-                <Search className="h-5 w-5 text-gray-400" />
+                {/* Search icon */}
+                <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
+                  <Search className="h-5 w-5 text-gray-400" />
+                </div>
+
               </div>
+              
+              {showSearchDropdown && (
+
+                <div className="absolute top-full left-0 right-0 bg-white border rounded-md shadow-md max-h-60 overflow-y-auto z-50">
+                  
+                  {filteredUsers.map((user) => (
+
+                    <button
+                      key={user.id}
+                      onClick={() => {
+                        const name = capitalizeName(user.name);
+                        handleUserSelect(name);
+                        setConfirmedPerson(name);
+                        setSearchTerm(name);
+                        setShowSearchDropdown(false);
+                      }}
+                      className="block w-full text-left px-4 py-2 hover:bg-gray-100"
+                    >
+                      {capitalizeName(user.name)}
+                    </button>
+
+                  ))}
+                </div>
+              )}
             </div>
-
-            {showSearchDropdown && (
-              <div className="absolute top-full left-0 right-0 bg-white border rounded-md shadow-md max-h-60 overflow-y-auto z-50">
-                {filteredUsers.map((user) => (
-                  <button
-                    key={user.id}
-                    onClick={() => {
-                      const name = capitalizeName(user.name);
-                      handleUserSelect(name);
-                      setConfirmedPerson(name);
-                      setSearchTerm(name);
-                      setShowSearchDropdown(false);
-                    }}
-                    className="block w-full text-left px-4 py-2 hover:bg-gray-100"
-                  >
-                    {capitalizeName(user.name)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-
-
-
+          ) : null}
 
           <div className="relative w-80 h-80 border rounded-md overflow-hidden">
             {countdownActive && (
@@ -361,41 +390,32 @@ const HomePage = () => {
                     Are you <span className="text-blue-600">{detectedName}</span>?
                   </div>
                   <div className="flex space-x-4">
+
+                    <button
+                      onClick={handleAnotherPerson}
+                      className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600"
+                    >
+                      Another Person?
+                    </button>
+                    
                     <button
                       onClick={handleConfirmYes}
                       className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
                     >
                       Yes
                     </button>
-                    <div className="flex flex-col items-center space-y-2">
-                      <button
-                        onClick={handleAnotherPerson}
-                        className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600"
-                      >
-                        {showDropdown ? "Cancel" : "Choose User"}
-                      </button>
 
-                      {showDropdown && (
-                        <div className="mt-2 border rounded p-2 bg-white shadow-md">
-                          {userList.map((user) => (
-                            <button
-                              key={user.id}
-                              onClick={() => handleUserSelect(user.name)}
-                              className="block w-full text-left py-1 hover:bg-gray-100"
-                            >
-                              {capitalizeName(user.name)}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
                   </div>
                 </>
-              ) : (
+              ) : manualAdding ? ( // 👈 if manual adding
                 <>
-                  <div className="text-xl font-semibold text-red-600">
-                    Person not recognized
-                  </div>
+                  <input
+                    type="text"
+                    placeholder="Enter name..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-80 px-4 py-2 border rounded-md focus:outline-none focus:ring focus:border-blue-300"
+                  />
                   <button
                     onClick={handleAddPerson}
                     className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
@@ -403,18 +423,23 @@ const HomePage = () => {
                     Add Person
                   </button>
                 </>
+              ) : (
+                <>
+
+                  <div className="text-xl font-semibold text-red-600">
+                    Person not recognized
+                  </div>
+
+                  <button
+                    onClick={handleAddPerson}
+                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                  >
+                    Add Person
+                  </button>
+
+                </>
               )}
             </div>
-          )}
-
-          {/* Show Next Button only if confirmed */}
-          {confirmedPerson && (
-            <button
-              onClick={handleNext}
-              className="mt-6 bg-[#285082] text-white px-6 py-3 rounded hover:bg-[#1f407a]"
-            >
-              Next
-            </button>
           )}
         </div>
       )}

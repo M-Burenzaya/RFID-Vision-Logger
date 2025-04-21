@@ -53,7 +53,7 @@ const VisionSettings = () => {
               : "Unknown";
 
               const confidence = json.distance !== null
-              ? (json.distance).toFixed(3)  // Example: distance 0.234 → confidence 0.766
+              ? Math.max(0, Math.min(100, (1.5 - json.distance) * 100)).toFixed(3)  // Example: distance 0.234 → confidence 0.766
               : "0.000";
             
             const logText = `Recognition result: ${formattedName} (${json.distance?.toFixed(3) ?? "N/A"})`;
