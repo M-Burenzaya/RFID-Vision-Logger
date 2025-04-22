@@ -25,7 +25,7 @@ const Navbar = () => {
   const location = useLocation();
 
   const pageNameMap = {
-    '/': 'Home',
+    '/home': 'Home',
     '/rfid': 'RFID Settings',
     '/vision': 'Vision Settings',
     '/user-log': 'User Log',
@@ -67,7 +67,7 @@ const Navbar = () => {
         {/* Nav Links (Desktop) */}
           <div className="hidden md:flex gap-4 text-sm font-medium text-[#285082]">
 
-            <NavLink to="/" className={linkClass}>Home</NavLink>
+            <NavLink to="/home" className={linkClass}>Home</NavLink>
 
             <NavLink to="/rfid" className={linkClass}>
               <span className="inline lg:hidden">RFID</span>

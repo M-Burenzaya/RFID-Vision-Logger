@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search } from "lucide-react";
+import { Search, RotateCcw } from "lucide-react";
 import api from "../api";
 
 
@@ -10,9 +10,16 @@ const HomePage = () => {
   const [imageSrc, setImageSrc] = useState(null);
 
   const [isCreatingLog, setIsCreatingLog] = useState(false);
-  const [isPersonFound, setIsPersonFound] = useState(false);
+  const [isAddingPerson, setIsAddingPerson] = useState(false);
 
-  const isAddingPerson = useRef(false);
+  const [hasCaptured, setHasCaptured] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+
+
+  const [isPersonFound, setIsPersonFound] = useState(false);
+  const [isAnotherPerson, setIsAnotherPerson] = useState(false);
+
+  const isAnotherPersonRef = useRef(false);
 
   const [isFaceCentered, setIsFaceCentered] = useState(false);
   const [countdown, setCountdown] = useState(null);
@@ -28,9 +35,7 @@ const HomePage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
-  const searchRef = useRef(null);  // 👈 Create ref for search area
-
-  const [manualAdding, setManualAdding] = useState(false); // 👈 Add new state
+  const searchRef = useRef(null);
 
   const navigate = useNavigate();
 
@@ -80,8 +85,8 @@ const HomePage = () => {
 
             // console.log("Recognition result:", json.name);
             
-            if (!isAddingPerson.current) {  
-              // console.log("isAddingPerson:", isAddingPerson);
+            if (!isAnotherPersonRef.current) {  
+              // console.log("isAnotherPersonRef:", isAnotherPersonRef);
 
               if (json.name) {
                 setDetectedName(capitalizeName(json.name));
@@ -150,6 +155,10 @@ const HomePage = () => {
       triggerOnce();
       setCountdown(null);
       setCountdownActive(false);
+      setIsAddingPerson(true);
+      setHasCaptured(true);
+
+      console.log("Counter reached zero, isAddingPerson: " + isAddingPerson);
       return;
     }
 
@@ -171,6 +180,8 @@ const HomePage = () => {
   const showSavedImage = (name) => {
     const filename = formatFilename(name);
     const imageUrl = getUserImageUrl(filename);
+
+    setIsPersonFound(true);
   
     // Test if image exists
     fetch(imageUrl)
@@ -186,8 +197,6 @@ const HomePage = () => {
       });
   };
   
-  
-
   const triggerOnce = async () => {
     try {
       await api.post("/triggerOnce");
@@ -204,19 +213,31 @@ const HomePage = () => {
     }
   }
 
-  const handleConfirmYes = () => {
-    setConfirmedPerson(detectedName);
-    setShowDropdown(false);  // Hide dropdown if still open
+  const stopContinuous = async () => {
+    try {
+      await api.post("/stopContinuous");
+    } catch (error) {
+      console.error("Stop Continuous Error:", error);
+    }
+  }
+
+  const handleConfirmYes = async () => {
+    await stopContinuous();
+    setConfirmedPerson(detectedName); // Keep updating the state for internal logic
+    setShowDropdown(false);
+    navigate("/home/select-items", { state: { personName: detectedName } }); // ✅ use detectedName directly
   };
   
 
   const handleAnotherPerson = () => {
-    isAddingPerson.current = true;
-    setManualAdding(true); // 👈 Activate manual adding mode
+    isAnotherPersonRef.current = true;
+    setIsAnotherPerson(true);
+    setIsAddingPerson(true);
 
     setDetectedName(null);
     setIsRecognitionDone(false);
     setConfirmedPerson(null);
+    setSearchTerm("");
     
     triggerContinuous();
   };
@@ -224,21 +245,46 @@ const HomePage = () => {
 
   const handleUserSelect = (name) => {
     const capitalizedName = capitalizeName(name);
+
     setDetectedName(capitalizedName);
     showSavedImage(capitalizedName);
+
     setIsRecognitionDone(true);
     setShowDropdown(false);  // Hide dropdown after selection
+
+    setIsAddingPerson(false);
+    
+    stopContinuous();
   };
   
-  const handleAddPerson = () => {
-    navigate("/add"); // Go to add person page
+  const handleReturn = async () => {
+    if (!isAddingPerson) {
+      // Normal "Return" from home
+      await stopContinuous();
+      setIsCreatingLog(false); // Hide everything and go back to Home
+      setImageSrc(null);       // Clear camera feed
+      setDetectedName(null);   // Clear detected name
+      setConfirmedPerson(null);
+      setIsRecognitionDone(false);
+      setSearchTerm("");       // Clear search bar
+      setShowSearchDropdown(false);
+      isAnotherPersonRef.current = false;
+      return;
+    }
+  
+    // If "Adding Person" mode
+    setIsAddingPerson(false);
+    setIsRecognitionDone(false);
+    setConfirmedPerson(null);
+    setDetectedName(null);
+    setSearchTerm("");
+    setNameInput("");
+    setShowSearchDropdown(false);
+    isAnotherPersonRef.current = false;
+  
+    await triggerContinuous();
   };
-
-  const handleNext = () => {
-    // Save person info if needed and go to next step
-    navigate("/select-items", { state: { personName: confirmedPerson } });
-  };
-
+  
   const capitalizeName = (name) =>
     name
       .split(" ")
@@ -272,7 +318,7 @@ const HomePage = () => {
   const setAutoCapture = async (enabled) => {
     try {
       await api.post("/setAutoCapture", { auto_capture: enabled });
-      console.log("AutoCapture set to", enabled);
+      // console.log("AutoCapture set to", enabled);
     } catch (error) {
       console.error("Failed to set auto capture:", error);
     }
@@ -281,17 +327,62 @@ const HomePage = () => {
   const setShowFeatures = async (enabled) => {
     try {
       await api.post("/setShowFeatures", { show_features: enabled });
-      console.log("ShowFeatures set to", enabled);
+      // console.log("ShowFeatures set to", enabled);
     } catch (error) {
       console.error("Failed to set show features:", error);
     }
   };
 
+  const handleCaptureImage = async () => {
+    try {
+      setHasCaptured(false);
+      triggerContinuous();
+    } catch (error) {
+      console.error("Capture Image Error:", error);
+    }
+  };
+
+
+  const handleAddUser = async () => {
+    if (nameInput.trim() === "") {
+      alert("Please enter a name.");
+      return;
+    }
+  
+    if (!hasCaptured) {
+      alert("Please capture an image before saving.");
+      return;
+    }
+  
+    try {
+      const payload = { name: nameInput };
+  
+      const response = await api.post("/add-user", payload);
+      if (response.status === 200) {
+        alert("User added successfully!");
+        navigate("/home/select-items", { state: { personName: nameInput } });
+      }
+  
+      setIsAddingPerson(false);
+      setHasCaptured(false);
+      setSearchTerm("");
+      setConfirmedPerson(null);
+      setDetectedName(null);
+      setIsRecognitionDone(false);
+      isAnotherPersonRef.current = false;
+
+    } catch (error) {
+      console.error("Error saving user:", error);
+      alert("Failed to save user.");
+    }
+  };
+  
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen">
+    <div className="flex flex-col items-center justify-center">
       {!isCreatingLog ? (
         <>
-          <img src={imageSrc} alt="Start Placeholder" className="w-[500px] h-auto mb-8" />
+          <img src={imageSrc || placeholderImage} alt="Start Placeholder" className="w-[600px] h-auto mb-8" />
           <button
             onClick={handleStartLog}
             className="bg-[#285082] text-white px-8 py-4 rounded-md text-2xl hover:bg-[#1f407a]"
@@ -300,14 +391,14 @@ const HomePage = () => {
           </button>
         </>
       ) : (
+        <div className="flex flex-col items-center justify-center w-full px-8">
 
-        <div className="flex flex-col items-center justify-center p-6 space-y-6">
-          
-          {!isAddingPerson.current ? (
-            <div ref={searchRef} className="relative w-80 mb-4">
+          <div className="flex flex-col items-center w-full max-w-xl space-y-8 mt-6">
+
+            <div ref={searchRef} className="relative max-w-80 mb-4">
 
               {/* Search bar */}
-              <div className="relative">
+              <div className="relative w-full">
                 <input
                   type="text"
                   placeholder="Search by name..."
@@ -334,11 +425,8 @@ const HomePage = () => {
               </div>
               
               {showSearchDropdown && (
-
                 <div className="absolute top-full left-0 right-0 bg-white border rounded-md shadow-md max-h-60 overflow-y-auto z-50">
-                  
                   {filteredUsers.map((user) => (
-
                     <button
                       key={user.id}
                       onClick={() => {
@@ -352,96 +440,131 @@ const HomePage = () => {
                     >
                       {capitalizeName(user.name)}
                     </button>
-
                   ))}
                 </div>
               )}
             </div>
-          ) : null}
 
-          <div className="relative w-80 h-80 border rounded-md overflow-hidden">
-            {countdownActive && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-6xl font-bold z-20">
-                {countdown}
+            <div className="relative w-full h-auto border rounded-md overflow-hidden">
+              {/* Retry Icon Button (Bottom Right) */}
+              {hasCaptured && (
+              <div className="absolute bottom-3 right-3 z-10">
+                <button
+                  onClick={handleCaptureImage}
+                  className="bg-white p-2 rounded-full shadow-md hover:bg-gray-100 active:bg-gray-200"
+                  title="Retry"
+                >
+                  <RotateCcw className="h-12 w-12 text-[#285082]" />
+                </button>
               </div>
-            )}
-            {!detectedName && (
-              <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
-                <img
-                  src="/portrait_guide_overlay.svg"
-                  alt="Guide Overlay"
-                  className="absolute top-0 left-0 w-full h-full object-contain opacity-50 pointer-events-none z-10"
-                />
-              </div>
-            )}
-            <img
-              src={imageSrc || placeholderImage}
-              alt="Camera feed"
-              className="w-full h-full object-cover"
-            />
+              )}
+              {countdownActive && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-6xl font-bold z-20">
+                  {countdown}
+                </div>
+              )}
+              {!detectedName && (
+                <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+                  <img
+                    src="/portrait_guide_overlay.svg"
+                    alt="Guide Overlay"
+                    className="absolute top-0 left-0 w-full h-full object-contain opacity-50 pointer-events-none z-10"
+                  />
+                </div>
+              )}
+              <img
+                src={imageSrc || placeholderImage}
+                alt="Camera feed"
+                className="w-full h-full object-cover"
+              />
+            </div>
           </div>
 
+
+          {!isAddingPerson && !detectedName && (
+            <div className="flex flex-col w-full items-center space-y-4 mt-4">
+
+              <button
+                onClick={handleReturn}
+                className="w-full max-w-60 p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
+                hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white"
+              >
+                Return
+              </button>
+
+            </div>
+          )}
+         
+          
           {/* Show detected name after recognition */}
           {isRecognitionDone && (
-            <div className="flex flex-col items-center space-y-4">
-              {detectedName ? (
-                <>
-                  <div className="text-xl font-semibold text-gray-800">
-                    Are you <span className="text-blue-600">{detectedName}</span>?
+            <div className="flex w-full max-w-xl flex-col items-center space-y-4">
+              {detectedName && (
+                <div className="flex flex-col w-full items-center space-y-4 mt-4">
+                  <div className="text-xl text-[#285082]">
+                    Are you <span className="font-bold">{detectedName}</span>?
                   </div>
-                  <div className="flex space-x-4">
 
+                  <div className="flex w-full gap-4">
                     <button
                       onClick={handleAnotherPerson}
-                      className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600"
-                    >
+                      className="w-full p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
+                      hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white"                  >
                       Another Person?
                     </button>
-                    
                     <button
                       onClick={handleConfirmYes}
-                      className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                      className="w-full p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
+                      hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white"
                     >
                       Yes
                     </button>
-
                   </div>
-                </>
-              ) : manualAdding ? ( // 👈 if manual adding
-                <>
-                  <input
-                    type="text"
-                    placeholder="Enter name..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-80 px-4 py-2 border rounded-md focus:outline-none focus:ring focus:border-blue-300"
-                  />
-                  <button
-                    onClick={handleAddPerson}
-                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                  >
-                    Add Person
-                  </button>
-                </>
-              ) : (
-                <>
-
-                  <div className="text-xl font-semibold text-red-600">
-                    Person not recognized
-                  </div>
-
-                  <button
-                    onClick={handleAddPerson}
-                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                  >
-                    Add Person
-                  </button>
-
-                </>
+                </div>
               )}
             </div>
           )}
+          
+                
+          {isAddingPerson && (
+            <div className="flex w-full max-w-xl flex-col items-center space-y-4">
+              <div className="flex flex-col w-full items-center space-y-4 mt-4">
+
+                <input
+                  type="text"
+                  placeholder="Enter name..."
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  className="w-80 px-4 py-2 border rounded-md focus:outline-none focus:ring focus:border-blue-300"
+                />
+
+                {/* <div className="text-xl font-semibold text-red-600">
+                  Person not recognized
+                </div> */}
+
+                <div className="flex w-full gap-4">
+
+                  <button
+                    onClick={handleReturn}
+                    className="w-full p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
+                    hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white"
+                  >
+                    Return
+                  </button>
+
+                  <button
+                    onClick={handleAddUser}
+                    className="w-full p-2 border border-[#285082] bg-white text-[#285082] rounded-md cursor-pointer 
+                    hover:bg-[#f0f8ff] active:bg-[#285082] active:text-white"
+                  >
+                    Add Person
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+
       )}
     </div>
   );

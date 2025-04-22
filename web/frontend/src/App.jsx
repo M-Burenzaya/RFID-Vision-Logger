@@ -6,6 +6,9 @@ export const useRFID = () => useContext(RFIDContext);
 
 import Navbar from './components/Navbar.jsx';
 import Home from './pages/Home.jsx';
+import SelectItems from './pages/SelectItems.jsx';
+
+
 import RFID from './pages/RFID.jsx';
 import Vision from './pages/Vision.jsx';
 import UserLog from './pages/UserLog.jsx';
@@ -49,11 +52,12 @@ function App() {
 
             <div>
               <Routes>
-                <Route path="/" element={<Home />} />
+                <Route path="/home/*" element={<Home />} />
                 <Route path="/rfid/*" element={<RFID />} />
                 <Route path="/vision/*" element={<Vision />} />
                 <Route path="/user-log" element={<UserLog />} />
                 <Route path="/help" element={<Help />} />
+                <Route path="/home/select-items" element={<SelectItems />} />
               </Routes>
             </div>
 
