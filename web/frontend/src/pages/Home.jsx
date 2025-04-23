@@ -15,10 +15,6 @@ const HomePage = () => {
   const [hasCaptured, setHasCaptured] = useState(false);
   const [nameInput, setNameInput] = useState("");
 
-
-  const [isPersonFound, setIsPersonFound] = useState(false);
-  const [isAnotherPerson, setIsAnotherPerson] = useState(false);
-
   const isAnotherPersonRef = useRef(false);
 
   const [isFaceCentered, setIsFaceCentered] = useState(false);
@@ -135,7 +131,7 @@ const HomePage = () => {
   }, []);
 
   useEffect(() => {
-    if (isFaceCentered) {
+    if (isFaceCentered && !isRecognitionDone) {
       if (!countdownActive && countdown === null) {
         setCountdownActive(true);
         setCountdown(3);
@@ -146,7 +142,7 @@ const HomePage = () => {
         setCountdown(null);
       }
     }
-  }, [isFaceCentered]);
+  }, [isFaceCentered, isRecognitionDone]);
 
   useEffect(() => {
     if (!countdownActive || countdown === null) return;
@@ -176,12 +172,10 @@ const HomePage = () => {
   const getUserImageUrl = (filename) => {
     return `http://localhost:8000/user-image/${filename}`;
   };
-  
+
   const showSavedImage = (name) => {
     const filename = formatFilename(name);
     const imageUrl = getUserImageUrl(filename);
-
-    setIsPersonFound(true);
   
     // Test if image exists
     fetch(imageUrl)
@@ -231,7 +225,6 @@ const HomePage = () => {
 
   const handleAnotherPerson = () => {
     isAnotherPersonRef.current = true;
-    setIsAnotherPerson(true);
     setIsAddingPerson(true);
 
     setDetectedName(null);
