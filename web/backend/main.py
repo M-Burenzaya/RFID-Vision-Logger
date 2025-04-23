@@ -17,7 +17,7 @@ from fastapi.responses import Response, JSONResponse, FileResponse
 
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from models import RfidBox, Item, User  # These are the models you created
+from models import ItemMaster, RfidBox, BoxItem, User, UserItem, ItemLog  # These are the models you created
 from database import SessionLocal, init_db
 
 from typing import List
@@ -121,6 +121,11 @@ class RfidBoxCreate(BaseModel):
 class UserCreate(BaseModel):
     name: str
 
+class LogEntry(BaseModel):
+    user_id: int
+    items_added: List[dict]  # [{item_id, name, quantity}]
+    items_returned: List[dict]
+    comment: str | None = None
 
 
 @app.on_event("startup")
@@ -141,6 +146,7 @@ image_path = os.path.join(image_directory, "captured_image.jpg")
 class BlockData(BaseModel):
     block: str
     data: str | None = None  # Optional in /read
+
 
 def get_flip_code(flip_horizontal: bool, flip_vertical: bool):
     if flip_horizontal and flip_vertical:
@@ -178,79 +184,109 @@ def load_all_embeddings(db: Session):
 
 @app.post("/rfid-box/")
 def create_or_update_rfid_box(data: RfidBoxCreate, db: Session = Depends(get_db)):
-    existing = db.query(RfidBox).filter(RfidBox.uid == data.uid).first()
+    existing_box = db.query(RfidBox).filter(RfidBox.uid == data.uid).first()
 
-    if existing:
-        # Update box name
-        existing.box_name = data.box_name
-
-        # Delete existing items
-        db.query(Item).filter(Item.rfid_box_id == existing.id).delete()
-
-        # Add new items
-        for item in data.items:
-            db_item = Item(
-                item_name=item.item_name,
-                item_description=item.item_description,
-                quantity=item.quantity,
-                rfid_box_id=existing.id
-            )
-            db.add(db_item)
-
+    if not existing_box:
+        existing_box = RfidBox(uid=data.uid, box_name=data.box_name)
+        db.add(existing_box)
         db.commit()
-        return {"message": "Box updated successfully", "box_id": existing.id, "uid": existing.uid}
-
+        db.refresh(existing_box)
     else:
-        # Create new box
-        new_box = RfidBox(uid=data.uid, box_name=data.box_name)
-        db.add(new_box)
-        db.commit()
-        db.refresh(new_box)
+        existing_box.box_name = data.box_name
+        db.query(BoxItem).filter(BoxItem.box_id == existing_box.id).delete()
 
-        # Add items
-        for item in data.items:
-            db_item = Item(
-                item_name=item.item_name,
-                item_description=item.item_description,
-                quantity=item.quantity,
-                rfid_box_id=new_box.id
+    for item_data in data.items:
+        item_master = db.query(ItemMaster).filter(ItemMaster.name == item_data.item_name).first()
+        
+        if not item_master:
+            item_master = ItemMaster(
+                name=item_data.item_name,
+                description=item_data.item_description,
+                total_quantity=item_data.quantity
             )
-            db.add(db_item)
+            db.add(item_master)
+            db.commit()
+            db.refresh(item_master)
+        else:
+            # Update description if changed
+            if item_master.description != item_data.item_description:
+                item_master.description = item_data.item_description
+                db.commit()
 
-        db.commit()
-        return {"message": "Box created successfully", "box_id": new_box.id, "uid": new_box.uid}
+        box_item = BoxItem(
+            box_id=existing_box.id,
+            item_id=item_master.id,
+            quantity=item_data.quantity
+        )
+        db.add(box_item)
+
+
+    db.commit()
+    return {"message": "RFID box saved", "box_id": existing_box.id}
 
 
 # Route to add an item to a box
 @app.post("/add-item/")
-def add_item(item_name: str, item_description: str, quantity: int, rfid_box_id: int, db: Session = Depends(get_db)):
-    db_item = Item(item_name=item_name, item_description=item_description, quantity=quantity, rfid_box_id=rfid_box_id)
-    db.add(db_item)
+def add_item(
+    item_name: str,
+    item_description: str,
+    quantity: int,
+    rfid_box_id: int,
+    db: Session = Depends(get_db)
+):
+    # Step 1: Check if the item already exists in item_master
+    item_master = db.query(ItemMaster).filter(ItemMaster.name == item_name).first()
+
+    if not item_master:
+        item_master = ItemMaster(
+            name=item_name,
+            description=item_description,
+            total_quantity=0  # we'll increment after
+        )
+        db.add(item_master)
+        db.commit()
+        db.refresh(item_master)
+
+    # Step 2: Create the BoxItem entry linking it to the box
+    box_item = BoxItem(
+        box_id=rfid_box_id,
+        item_id=item_master.id,
+        quantity=quantity
+    )
+    db.add(box_item)
+
+    # Step 3: Update total quantity in item_master
+    item_master.total_quantity += quantity
+
     db.commit()
-    db.refresh(db_item)
-    return db_item
+    return {
+        "message": "Item added to box",
+        "box_id": rfid_box_id,
+        "item_id": item_master.id,
+        "new_total": item_master.total_quantity
+    }
 
 @app.get("/rfid-box/{uid}")
 def get_rfid_box(uid: str, db: Session = Depends(get_db)):
-    # Check if box exists
     box = db.query(RfidBox).filter(RfidBox.uid == uid).first()
     if not box:
         raise HTTPException(status_code=404, detail="Box not found")
-
-    # Get related items
-    items = db.query(Item).filter(Item.rfid_box_id == box.id).all()
 
     return {
         "uid": box.uid,
         "box_name": box.box_name,
         "items": [
             {
-                "item_name": item.item_name,
-                "item_description": item.item_description,
-                "quantity": item.quantity
-            } for item in items
+                "item_id": bi.item.id,
+                "item_name": bi.item.name,
+                "item_description": bi.item.description,  # <-- Ensure this line exists
+                "quantity": bi.quantity
+            }
+            for bi in box.box_items
         ]
     }
+
+
 
 # Route to get items by RFID box UID
 @app.get("/items/{rfid_uid}")
@@ -265,21 +301,25 @@ def get_all_boxes(db: Session = Depends(get_db)):
     boxes = db.query(RfidBox).all()
     result = []
     for box in boxes:
-        result.append({
+        box_data = {
             "id": box.id,
             "uid": box.uid,
             "box_name": box.box_name,
-            "items": [
-                {
-                    "id": item.id,
-                    "item_name": item.item_name,
-                    "item_description": item.item_description,
-                    "quantity": item.quantity,
-                }
-                for item in box.items
-            ]
-        })
+            "items": []
+        }
+        for bi in box.box_items:
+            if bi.item is None:
+                continue  # skip invalid item link
+            box_data["items"].append({
+                "item_id": bi.item.id,
+                "item_name": bi.item.name,
+                "item_description": bi.item.description,
+                "quantity": bi.quantity
+            })
+        result.append(box_data)
     return result
+
+
 
 @app.delete("/delete-box/{box_id}")
 def delete_box(box_id: int = Path(...), db: Session = Depends(get_db)):
@@ -649,6 +689,27 @@ def get_users(db: Session = Depends(get_db)):
         for user in users
     ]
 
+@app.get("/user-items/{user_id}")
+def get_user_items(user_id: int, db: Session = Depends(get_db)):
+    items = db.query(UserItem).filter(UserItem.user_id == user_id).all()
+    
+    if not items:
+        return {"message": "No items found", "items": []}
+
+    return {
+        "message": "Items found",
+        "items": [
+            {
+                "item_id": ui.item.id,
+                "item_name": ui.item.name,
+                "description": ui.item.description,
+                "quantity": ui.quantity
+            } for ui in items if ui.item
+        ]
+    }
+
+
+
 @app.get("/user-image/{filename}")
 def get_user_image(filename: str):
     image_path = os.path.join(image_directory, filename)
@@ -745,6 +806,48 @@ def check_user(name: str = Query(...)):
         return {"exists": True, "id": user.id}
     else:
         return {"exists": False}
+    
+@app.post("/create-log")
+def create_log(entry: LogEntry, db: Session = Depends(get_db)):
+    # Update user items
+    def apply_change(item_list, delta):
+        for it in item_list:
+            ui = db.query(UserItem).filter_by(user_id=entry.user_id, item_id=it["item_id"]).first()
+            if ui:
+                ui.quantity += delta * it["quantity"]
+                if ui.quantity <= 0:
+                    db.delete(ui)
+            elif delta > 0:
+                new = UserItem(user_id=entry.user_id, item_id=it["item_id"], quantity=it["quantity"])
+                db.add(new)
+
+    apply_change(entry.items_added, +1)
+    apply_change(entry.items_returned, -1)
+
+    # Create log entry
+    new_log = ItemLog(
+        user_id=entry.user_id,
+        items_added=json.dumps(entry.items_added),
+        items_returned=json.dumps(entry.items_returned),
+        comment=entry.comment or ""
+    )
+    db.add(new_log)
+    db.commit()
+    return {"message": "Log recorded successfully"}
+
+@app.get("/item-master")
+def get_all_items(db: Session = Depends(get_db)):
+    items = db.query(ItemMaster).all()
+    return [
+        {
+            "id": item.id,
+            "name": item.name,
+            "description": item.description,
+            "total_quantity": item.total_quantity
+        }
+        for item in items
+    ]
+
 
 def clear_all_queues():
     try:
@@ -985,3 +1088,4 @@ async def write_rfid(request: Request):
             )
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": str(e)})
+    

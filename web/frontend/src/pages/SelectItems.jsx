@@ -1,103 +1,205 @@
-import React, { useState, useEffect, useRef } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import api from "../api"; // Assuming you have an api helper setup
+import React, { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom"; // ⬅ Make sure this is imported
+import { Trash2 } from "lucide-react";
+import api from "../api";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
+import { useRFID } from "../App";
 const SelectItems = () => {
+  const {
+    uid, setUid,
+    isScanned, setIsScanned,
+    isReadyToScan, setIsReadyToScan,
+    boxName, setBoxName,
+    items, setItems
+  } = useRFID();
+
+  const [userId, setUserId] = useState(null); // ✅ Add this
+  const [userItems, setUserItems] = useState([]);
+  const [scannedBoxes, setScannedBoxes] = useState([]);
+  const [logComment, setLogComment] = useState("");
+
   const location = useLocation();
-  const navigate = useNavigate();
+  const userName = location.state?.personName;
 
-  // Get personName from navigation state, default to "Unknown" if not provided
-  const personName = location.state?.personName || "Unknown";
-
-  // State to hold the items associated with the person
-  const [items, setItems] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  // Fetch items associated with the person when the component mounts
   useEffect(() => {
-    const fetchItems = async () => {
-      if (personName === "Unknown") {
-          setError("Person name is missing.");
-          setIsLoading(false);
-          return;
-      }
-      setIsLoading(true);
-      setError(null);
+    setUid("");
+    setIsScanned(false);
+    tryInitializeUntilReady();
+  }, []);
+
+  useEffect(() => {
+    if (isScanned && uid) {
+      fetchBoxByUid(uid);
+    }
+  }, [isScanned, uid]);
+  
+  useEffect(() => {
+    if (!location.state?.personName) return;
+  
+    const fetchUserIdAndItems = async () => {
       try {
-        // --- TODO: Replace with your actual API endpoint ---
-        // This assumes an endpoint like GET /api/persons/{personName}/items
-        // or similar to fetch items for a specific person.
-        // Adjust the endpoint and data handling as per your backend API structure.
-        const response = await api.get(`/api/persons/${encodeURIComponent(personName)}/items`);
-        setItems(response.data || []); // Assuming the API returns an array of items in response.data
+        const res = await api.get("/users");
+        const user = res.data.find(u => u.name.toLowerCase() === location.state.personName.toLowerCase());
+  
+        if (user) {
+          setUserId(user.id); // <-- Use this when calling /user-items/{user.id}
+          fetchUserItems(user.id);  // pass it explicitly
+        } else {
+          console.warn("User not found");
+        }
       } catch (err) {
-        console.error("Error fetching items:", err);
-        setError("Failed to fetch items. Please try again later.");
-        setItems([]); // Clear items on error
-      } finally {
-        setIsLoading(false);
+        console.error("Failed to fetch users:", err);
       }
     };
+  
+    fetchUserIdAndItems();
+  }, [location.state?.personName]);
+  
+  const fetchUserItems = async (id) => {
+    try {
+      const res = await api.get(`/user-items/${id}`);
+      const data = res.data;
+  
+      if (Array.isArray(data)) {
+        setUserItems(data);
+      } else {
+        console.warn("Expected array but got:", data);
+        setUserItems([]); // fallback to prevent crash
+      }
+    } catch (err) {
+      console.error("Failed to load user items", err);
+      setUserItems([]); // also fallback in case of error
+    }
+  };
+  
 
-    fetchItems();
-  }, [personName]); // Re-fetch if personName changes (though unlikely in this flow)
+  const handleScanRFID = async () => {
+    const res = await api.post("/scancont");
+    const { uid } = res.data;
+    const boxRes = await api.get(`/rfid-box/${uid}`);
+    setScannedBoxes(prev => [...prev, boxRes.data]);
+  };
+
+  const addItemToUser = (item) => {
+    setUserItems((prev) => {
+      const existing = prev.find(i => i.item_id === item.item_id);
+      if (existing) {
+        return prev.map(i =>
+          i.item_id === item.item_id ? { ...i, quantity: i.quantity + 1 } : i
+        );
+      } else {
+        return [...prev, { ...item, quantity: 1 }];
+      }
+    });
+  };
+
+  const removeItemFromUser = (itemId) => {
+    setUserItems((prev) =>
+      prev
+        .map(i => i.item_id === itemId ? { ...i, quantity: i.quantity - 1 } : i)
+        .filter(i => i.quantity > 0)
+    );
+  };
+
+  const handleCreateLog = async () => {
+    const prevRes = await api.get(`/user-items/${userId}`);
+    const previous = prevRes.data;
+
+    const getItemMap = (list) =>
+      Object.fromEntries(list.map(i => [i.item_id, i.quantity]));
+
+    const before = getItemMap(previous);
+    const after = getItemMap(userItems);
+
+    const itemsAdded = [];
+    const itemsReturned = [];
+
+    for (const item of [...new Set([...Object.keys(before), ...Object.keys(after)])]) {
+      const prevQty = before[item] || 0;
+      const currQty = after[item] || 0;
+      if (currQty > prevQty) itemsAdded.push({ item_id: parseInt(item), quantity: currQty - prevQty });
+      if (currQty < prevQty) itemsReturned.push({ item_id: parseInt(item), quantity: prevQty - currQty });
+    }
+
+    await api.post("/create-log", {
+      user_id: userId,
+      items_added: itemsAdded,
+      items_returned: itemsReturned,
+      comment: logComment
+    });
+
+    alert("Log saved.");
+    fetchUserItems();
+    setScannedBoxes([]);
+    setLogComment("");
+  };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-8 bg-gray-50">
-      <div className="w-full max-w-2xl p-6 bg-white rounded-lg shadow-md">
-        <h1 className="text-3xl font-bold mb-6 text-center text-[#285082]">
-          Manage Items for {personName}
-        </h1>
+    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Left Panel: User Items */}
+      <div className="border p-4 rounded shadow bg-white">
+        <h2 className="text-xl font-bold mb-4">🧑‍💻 Items In Use</h2>
+        <ul>
+          {userItems.map(item => (
+            <li key={item.item_id} className="flex justify-between items-center mb-2">
+              <span>{item.item_name} - {item.quantity}</span>
+              <button onClick={() => removeItemFromUser(item.item_id)} className="text-red-500">
+                <Trash2 size={16} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
 
-        {/* Add/Remove Items buttons */}
-        <div className="flex justify-center gap-4 mb-8">
-          <button
-            onClick={() => navigate("/add-items", { state: { personName } })}
-            className="px-6 py-3 bg-[#285082] text-white rounded-md shadow hover:bg-[#1f407a] transition duration-150 ease-in-out"
-          >
-            Add Items
-          </button>
+      {/* Right Panel: Scanned Boxes */}
+      <div className="border p-4 rounded shadow bg-white">
+        <h2 className="text-xl font-bold mb-4">📦 Available Items</h2>
+        <button
+          onClick={handleScanRFID}
+          className="mb-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          ➕ Scan RFID / Add Box
+        </button>
 
-          <button
-            onClick={() => navigate("/remove-items", { state: { personName } })}
-            className="px-6 py-3 bg-white border border-[#285082] text-[#285082] rounded-md shadow hover:bg-blue-50 transition duration-150 ease-in-out"
-          >
-            Remove Items
-          </button>
-        </div>
+        {scannedBoxes.length === 0 && (
+          <p className="text-gray-500">Scan RFID card or click Add to fetch box data</p>
+        )}
 
-        {/* Display Existing Items */}
-        <div className="mt-8 border-t pt-6">
-          <h2 className="text-xl font-semibold mb-4 text-gray-700">Current Items:</h2>
-          {isLoading && <p className="text-center text-gray-500">Loading items...</p>}
-          {error && <p className="text-center text-red-500">{error}</p>}
-          {!isLoading && !error && (
-            <>
-              {items.length > 0 ? (
-                <ul className="list-disc pl-5 space-y-2">
-                  {/* --- TODO: Adjust based on your item object structure --- */}
-                  {items.map((item, index) => (
-                    <li key={item.id || index} className="text-gray-800">
-                      {item.name || `Item ${index + 1}`} {/* Adjust property access based on your item data */}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-center text-gray-500">No items associated with {personName} yet.</p>
-              )}
-            </>
-          )}
-        </div>
-         {/* Back Button */}
-         <div className="mt-8 text-center">
-            <button
-                onClick={() => navigate(-1)} // Go back to the previous page
-                className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition duration-150 ease-in-out"
-            >
-                Back
-            </button>
-        </div>
+        {scannedBoxes.map((box, boxIdx) => (
+          <div key={box.uid} className="mb-4">
+            <h4 className="font-semibold">{box.box_name} (UID: {box.uid})</h4>
+            <ul>
+              {box.items.map(item => (
+                <li key={item.item_id} className="flex justify-between items-center mt-1">
+                  <span>{item.item_name} - {item.quantity} pcs</span>
+                  <button
+                    onClick={() => addItemToUser(item)}
+                    className="text-sm bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
+                  >
+                    Add
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      {/* Finalize Button */}
+      <div className="col-span-2 mt-4">
+        <textarea
+          value={logComment}
+          onChange={(e) => setLogComment(e.target.value)}
+          placeholder="Add comment (optional)"
+          className="w-full border p-2 mb-4 rounded"
+        />
+        <button
+          onClick={handleCreateLog}
+          className="w-full py-3 bg-blue-700 text-white text-lg rounded hover:bg-blue-800"
+        >
+          ✅ Create Log
+        </button>
       </div>
     </div>
   );

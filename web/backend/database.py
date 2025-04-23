@@ -10,5 +10,5 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 def init_db():
-    from models import RfidBox, Item  # ✅ Import models so Base knows them
+    # from models import RfidBox, BoxItem  # ✅ Import models so Base knows them
     Base.metadata.create_all(bind=engine)
