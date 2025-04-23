@@ -25,6 +25,7 @@ const Navbar = () => {
   const location = useLocation();
 
   const pageNameMap = {
+    '/': 'Home',
     '/home': 'Home',
     '/rfid': 'RFID Settings',
     '/vision': 'Vision Settings',
@@ -47,7 +48,7 @@ const Navbar = () => {
 
         {/* Logo */}
         <a className="text-xl py-3 font-bold hover:text-[#678cdf]"
-          href="https://www.mirapro.co.jp/en/"
+          // href="https://www.mirapro.co.jp/en/"
           target="_blank"
           rel="noopener noreferrer"
         >
@@ -67,7 +68,7 @@ const Navbar = () => {
         {/* Nav Links (Desktop) */}
           <div className="hidden md:flex gap-4 text-sm font-medium text-[#285082]">
 
-            <NavLink to="/home" className={linkClass}>Home</NavLink>
+            <NavLink to="/" className={linkClass}>Home</NavLink>
 
             <NavLink to="/rfid" className={linkClass}>
               <span className="inline lg:hidden">RFID</span>

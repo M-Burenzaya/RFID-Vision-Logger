@@ -52,6 +52,7 @@ function App() {
 
             <div>
               <Routes>
+                <Route index element={<Home />} />
                 <Route path="/home/*" element={<Home />} />
                 <Route path="/rfid/*" element={<RFID />} />
                 <Route path="/vision/*" element={<Vision />} />
