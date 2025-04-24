@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect, useRef, use } from 'react';
 import { useLocation } from "react-router-dom"; // ⬅ Make sure this is imported
 import { Trash2 } from "lucide-react";
 import api from "../api";
@@ -11,7 +11,8 @@ const SelectItems = () => {
     isScanned, setIsScanned,
     isReadyToScan, setIsReadyToScan,
     boxName, setBoxName,
-    items, setItems
+    items, setItems,
+
   } = useRFID();
 
   const [userId, setUserId] = useState(null); // ✅ Add this
@@ -22,11 +23,201 @@ const SelectItems = () => {
   const location = useLocation();
   const userName = location.state?.personName;
 
+  const mountedRef = useRef(true);
+  const hasInitializedRef = useRef(false);
+
+//----------------------------------------------------------------------------------------------
+
   useEffect(() => {
-    setUid("");
-    setIsScanned(false);
-    tryInitializeUntilReady();
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      handleStopScan();
+    };
   }, []);
+
+  useEffect(() => {
+    if (!hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      setUid("");
+      setIsScanned(false);
+      tryInitializeUntilReady();
+    }
+  }, []);
+
+  const tryInitializeUntilReady = async () => {
+    let success = false;
+  
+    while (!success && mountedRef.current) {
+      success = await initializeRFID();
+    }
+    if (mountedRef.current && success) {
+      await handleScan();
+      // console.log("[INFO] Scan result:", result);
+    }
+  };
+
+  const initializeRFID = async () => {
+
+    await handleStopScan();
+    // console.log("Step 1");
+
+    const closeSuccess = await handleClose();
+  
+    if (closeSuccess) {
+      // await new Promise(r => setTimeout(r, 1000));
+      // console.log("Step 2");
+      const initSuccess = await handleInitialize();
+  
+      if (initSuccess) {
+        setIsReadyToScan(true); // This is still useful for UI
+        // console.log("Initialized successfully");
+        return true;
+      }
+    }
+  
+    return false;
+  };
+
+  // Initialize the reader
+  const handleInitialize = async () => {
+    try {
+      const response = await api.post("/initialize");
+      console.log("[SUCCESS] Initialize request sent.");
+
+      if (response.data?.message) {
+        console.log("[INFO]", response.data.message);
+      }
+
+      return true;
+    } catch {
+      console.log("[ERROR] Failed to initialize reader.");
+      return false;
+    }
+  };
+  
+
+   // Close reader
+  const handleClose = async () => {
+    try {
+      const response = await api.post("/close");
+      // console.log("[SUCCESS] Close request sent.");
+
+      if (response.data?.message) {
+        console.log("[INFO]", response.data.message);
+      }
+
+      return true;
+    } catch (error) {
+      console.log("[ERROR] Failed to close reader.");
+
+      if (error.response?.data?.message) {
+        console.log("[ERROR] Server error:", error.response.data.message);
+      }
+
+      return false;
+    }
+  };
+
+  // Scan RFID tag
+  const handleScan = async () => {
+    try {
+      const response = await api.post("/scancont");
+      console.log("[SUCCESS] Scan request sent.");
+
+      if (response.data?.uid) {
+        const scannedUid = response.data.uid;
+        setUid(scannedUid);
+        setIsScanned(true); // <-- Set scanned to true
+        console.log("[INFO] Card UID:", scannedUid);
+
+        await fetchBoxByUid(scannedUid);              // <--- fetch box data
+
+        return true;
+
+      } else if (response.data?.message) {
+        console.log("[INFO]", response.data.message);
+      }
+      return false;
+    } catch (error) {
+      console.log("[ERROR] Failed to scan RFID card.");
+
+      if (error.response?.data?.message) {
+        console.log("[ERROR] Server error:", error.response.data.message);
+      }
+      return false;
+    }
+  };
+
+  const handleStopScan = async () => {
+    try {
+      await api.post('/stopscan');
+    } catch (err) {
+      console.error('Failed to stop scan:', err);
+    }
+  };
+
+  const fetchBoxByUid = async (scannedUid) => {
+    try {
+      const response = await api.get(`/rfid-box/${scannedUid}`);
+      
+      if (response.data) {
+        setBoxName(response.data.box_name || "");
+        setItems(response.data.items || []);
+        console.log("[INFO] Existing box loaded for UID:", scannedUid);
+      } else {
+        // UID exists but no data? Clear anyway
+        setBoxName("");
+        setItems([]);
+      }
+    } catch (error) {
+      if (error.response?.status === 404) {
+        console.log("[INFO] No box found for this UID, creating new.");
+        setBoxName("");
+        setItems([]);
+      } else {
+        console.log("[ERROR] Failed to fetch box data:", error);
+      }
+    }
+  };
+
+//----------------------------------------------------------------------------------------------
+useEffect(() => {
+  let interval;
+
+  const startPolling = () => {
+    interval = setInterval(async () => {
+      try {
+        const res = await api.post("/scancont");
+        const uid = res.data?.uid;
+
+        if (!uid || uid === "") return;
+
+        const cleanedUid = uid.trim().toLowerCase(); // ✅ Normalize UID
+        const alreadyExists = scannedBoxes.some(
+          (box) => box.uid?.trim().toLowerCase() === cleanedUid
+        );
+
+        if (alreadyExists) {
+          console.log("[SKIP] Box already scanned:", uid);
+          return;
+        }
+
+        console.log("New card scanned:", uid);
+        const boxRes = await api.get(`/rfid-box/${uid}`);
+        setScannedBoxes((prev) => [...prev, boxRes.data]);
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }, 3000); // Every 3 seconds
+  };
+
+  startPolling();
+
+  return () => clearInterval(interval); // Clean up on unmount
+}, [scannedBoxes]); // ⬅ Depend on scannedBoxes to get the latest list
+
+
 
   useEffect(() => {
     if (isScanned && uid) {
@@ -59,26 +250,35 @@ const SelectItems = () => {
   const fetchUserItems = async (id) => {
     try {
       const res = await api.get(`/user-items/${id}`);
-      const data = res.data;
-  
-      if (Array.isArray(data)) {
-        setUserItems(data);
-      } else {
-        console.warn("Expected array but got:", data);
-        setUserItems([]); // fallback to prevent crash
-      }
+      const data = res.data.items || [];  // <-- Safely fallback to empty array
+      setUserItems(data);
     } catch (err) {
       console.error("Failed to load user items", err);
-      setUserItems([]); // also fallback in case of error
+      setUserItems([]);
     }
   };
   
-
+  
   const handleScanRFID = async () => {
-    const res = await api.post("/scancont");
-    const { uid } = res.data;
-    const boxRes = await api.get(`/rfid-box/${uid}`);
-    setScannedBoxes(prev => [...prev, boxRes.data]);
+    try {
+      const res = await api.post("/scancont");
+      const uid = res.data?.uid;
+  
+      if (!uid) return;
+  
+      const cleanedUid = uid.trim().toLowerCase();  // ✅ declare this
+      const alreadyExists = scannedBoxes.some(box => box.uid?.toLowerCase() === cleanedUid);
+  
+      if (alreadyExists) {
+        console.log("[SKIP] Box with UID already exists:", uid);
+        return; // ✅ Stop adding duplicates
+      }
+  
+      const boxRes = await api.get(`/rfid-box/${uid}`);
+      setScannedBoxes(prev => [...prev, boxRes.data]);
+    } catch (err) {
+      console.error("handleScanRFID error:", err);
+    }
   };
 
   const addItemToUser = (item) => {
@@ -167,7 +367,7 @@ const SelectItems = () => {
         )}
 
         {scannedBoxes.map((box, boxIdx) => (
-          <div key={box.uid} className="mb-4">
+          <div key={box.uid ?? `fallback-${boxIdx}`} className="mb-4">
             <h4 className="font-semibold">{box.box_name} (UID: {box.uid})</h4>
             <ul>
               {box.items.map(item => (
