@@ -87,7 +87,7 @@ const Navbar = () => {
 
       {/* Mobile Menu Dropdown */}
       {menuOpen && (
-        <div className="md:hidden absolute top-16 right-0 z-50 w-48 bg-white shadow-lg rounded-lg p-4 flex flex-col gap-2 text-lg font-semibold text-[#285082]"
+        <div className="md:hidden absolute top-16 right-0 z-100 w-48 bg-white shadow-lg rounded-lg p-4 flex flex-col gap-2 text-lg font-semibold text-[#285082]"
           ref={menuRef}
         >
           <NavLink to="/" className={linkClass} onClick={() => setMenuOpen(false)}>Home</NavLink>

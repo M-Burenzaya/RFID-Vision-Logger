@@ -46,7 +46,7 @@ function App() {
 
           <div className="bg-white text-[#285082] shadow-sm relative min-h-screen">
 
-            <div className="bg-white text-[#285082] py-4 shadow-md relative z-10">
+            <div className="bg-white text-[#285082] py-4 shadow-md relative z-50">
               <Navbar />  
             </div>
 

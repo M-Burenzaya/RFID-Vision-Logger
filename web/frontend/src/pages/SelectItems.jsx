@@ -26,6 +26,13 @@ const SelectItems = () => {
   const mountedRef = useRef(true);
   const hasInitializedRef = useRef(false);
 
+
+  const fetchedUIDsRef = useRef(new Set());
+
+  const userItemsEndRef = useRef(null);
+  const scannedBoxesEndRef = useRef(null);  
+
+
 //----------------------------------------------------------------------------------------------
 
   useEffect(() => {
@@ -96,6 +103,17 @@ const SelectItems = () => {
     }
   };
   
+  useEffect(() => {
+    if (userItemsEndRef.current) {
+      userItemsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [userItems]);
+  
+  useEffect(() => {
+    if (scannedBoxesEndRef.current) {
+      scannedBoxesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [scannedBoxes]);
 
    // Close reader
   const handleClose = async () => {
@@ -123,31 +141,46 @@ const SelectItems = () => {
   const handleScan = async () => {
     try {
       const response = await api.post("/scancont");
-      console.log("[SUCCESS] Scan request sent.");
-
-      if (response.data?.uid) {
-        const scannedUid = response.data.uid;
-        setUid(scannedUid);
-        setIsScanned(true); // <-- Set scanned to true
-        console.log("[INFO] Card UID:", scannedUid);
-
-        await fetchBoxByUid(scannedUid);              // <--- fetch box data
-
-        return true;
-
-      } else if (response.data?.message) {
-        console.log("[INFO]", response.data.message);
+      const scannedUid = response.data?.uid?.trim().toLowerCase();
+  
+      if (!scannedUid) return;
+  
+      // Move the check and add UID early to avoid race condition
+      if (fetchedUIDsRef.current.has(scannedUid)) {
+        console.log("[INFO] Skipping duplicate UID:", scannedUid);
+        return;
       }
-      return false;
+  
+      // ✅ Mark as fetched immediately
+      fetchedUIDsRef.current.add(scannedUid);
+  
+      await fetchBoxByUid(scannedUid);  // No need to check again inside this
+      setIsScanned(true);
+      return true;
+  
     } catch (error) {
-      console.log("[ERROR] Failed to scan RFID card.");
-
-      if (error.response?.data?.message) {
-        console.log("[ERROR] Server error:", error.response.data.message);
-      }
+      console.error("[ERROR] Failed to scan:", error);
       return false;
     }
   };
+  
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      handleScan();
+    }, 3000); // every second
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // useEffect(() => {
+  //   if (isScanned) {
+  //     setIsScanned(false);
+  //     handleScan();
+  //   }
+  //   return;
+  // }, [isScanned]); // No scannedBoxes dependency here
+  
 
   const handleStopScan = async () => {
     try {
@@ -160,64 +193,29 @@ const SelectItems = () => {
   const fetchBoxByUid = async (scannedUid) => {
     try {
       const response = await api.get(`/rfid-box/${scannedUid}`);
-      
+  
       if (response.data) {
         setBoxName(response.data.box_name || "");
         setItems(response.data.items || []);
-        console.log("[INFO] Existing box loaded for UID:", scannedUid);
+        setScannedBoxes(prev => [...prev, response.data]);
+        console.log("[INFO] Box added:", scannedUid);
       } else {
-        // UID exists but no data? Clear anyway
         setBoxName("");
         setItems([]);
       }
     } catch (error) {
       if (error.response?.status === 404) {
-        console.log("[INFO] No box found for this UID, creating new.");
         setBoxName("");
         setItems([]);
       } else {
-        console.log("[ERROR] Failed to fetch box data:", error);
+        console.error("[ERROR] Failed to fetch box data:", error);
       }
     }
   };
+  
+  
 
 //----------------------------------------------------------------------------------------------
-useEffect(() => {
-  let interval;
-
-  const startPolling = () => {
-    interval = setInterval(async () => {
-      try {
-        const res = await api.post("/scancont");
-        const uid = res.data?.uid;
-
-        if (!uid || uid === "") return;
-
-        const cleanedUid = uid.trim().toLowerCase(); // ✅ Normalize UID
-        const alreadyExists = scannedBoxes.some(
-          (box) => box.uid?.trim().toLowerCase() === cleanedUid
-        );
-
-        if (alreadyExists) {
-          console.log("[SKIP] Box already scanned:", uid);
-          return;
-        }
-
-        console.log("New card scanned:", uid);
-        const boxRes = await api.get(`/rfid-box/${uid}`);
-        setScannedBoxes((prev) => [...prev, boxRes.data]);
-      } catch (err) {
-        console.error("Polling error:", err);
-      }
-    }, 3000); // Every 3 seconds
-  };
-
-  startPolling();
-
-  return () => clearInterval(interval); // Clean up on unmount
-}, [scannedBoxes]); // ⬅ Depend on scannedBoxes to get the latest list
-
-
 
   useEffect(() => {
     if (isScanned && uid) {
@@ -259,26 +257,8 @@ useEffect(() => {
   };
   
   
-  const handleScanRFID = async () => {
-    try {
-      const res = await api.post("/scancont");
-      const uid = res.data?.uid;
-  
-      if (!uid) return;
-  
-      const cleanedUid = uid.trim().toLowerCase();  // ✅ declare this
-      const alreadyExists = scannedBoxes.some(box => box.uid?.toLowerCase() === cleanedUid);
-  
-      if (alreadyExists) {
-        console.log("[SKIP] Box with UID already exists:", uid);
-        return; // ✅ Stop adding duplicates
-      }
-  
-      const boxRes = await api.get(`/rfid-box/${uid}`);
-      setScannedBoxes(prev => [...prev, boxRes.data]);
-    } catch (err) {
-      console.error("handleScanRFID error:", err);
-    }
+  const handleAddBox = async () => {
+
   };
 
   const addItemToUser = (item) => {
@@ -332,77 +312,111 @@ useEffect(() => {
     alert("Log saved.");
     fetchUserItems();
     setScannedBoxes([]);
+    seenUIDsRef.current.clear();
     setLogComment("");
   };
 
   return (
-    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-      {/* Left Panel: User Items */}
-      <div className="border p-4 rounded shadow bg-white">
-        <h2 className="text-xl font-bold mb-4">🧑‍💻 Items In Use</h2>
-        <ul>
-          {userItems.map(item => (
-            <li key={item.item_id} className="flex justify-between items-center mb-2">
-              <span>{item.item_name} - {item.quantity}</span>
-              <button onClick={() => removeItemFromUser(item.item_id)} className="text-red-500">
-                <Trash2 size={16} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Right Panel: Scanned Boxes */}
-      <div className="border p-4 rounded shadow bg-white">
-        <h2 className="text-xl font-bold mb-4">📦 Available Items</h2>
-        <button
-          onClick={handleScanRFID}
-          className="mb-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-        >
-          ➕ Scan RFID / Add Box
-        </button>
-
-        {scannedBoxes.length === 0 && (
-          <p className="text-gray-500">Scan RFID card or click Add to fetch box data</p>
-        )}
-
-        {scannedBoxes.map((box, boxIdx) => (
-          <div key={box.uid ?? `fallback-${boxIdx}`} className="mb-4">
-            <h4 className="font-semibold">{box.box_name} (UID: {box.uid})</h4>
+    <div className="flex flex-col justify-center items-center max-w-6xl mx-auto p-8">
+      <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
+        {/* Left Panel: User Items */}
+        <div className="border border-[#285082] p-6 rounded-md">
+          <h2 className="text-xl font-bold mb-4 text-[#285082]">🧑‍💻 Items In Use</h2>
+          <div className="h-[200px] md:h-[300px] lg:h-[400px] overflow-y-auto rounded-md p-2 sm:p-3 md:p-4 shadow">
             <ul>
-              {box.items.map(item => (
-                <li key={item.item_id} className="flex justify-between items-center mt-1">
-                  <span>{item.item_name} - {item.quantity} pcs</span>
+              {userItems.map(item => (
+                <li
+                  key={item.item_id}
+                  className="flex justify-between items-center mb-2 p-2 bg-gray-100 hover:bg-gray-200 rounded transition"
+                >
+                  <span>{item.item_name} - {item.quantity}</span>
                   <button
-                    onClick={() => addItemToUser(item)}
-                    className="text-sm bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
+                    onClick={() => removeItemFromUser(item.item_id)}
+                    className="text-[#285082] hover:text-[#1f407a] transition"
                   >
-                    Add
+                    <Trash2 size={16} />
                   </button>
                 </li>
               ))}
+              <div ref={userItemsEndRef} />
             </ul>
           </div>
-        ))}
-      </div>
+        </div>
+    
+        {/* Right Panel: Scanned Boxes */}
+        <div className="border border-[#285082] p-6 rounded-md">
+          
+          <h2 className="text-xl font-bold mb-4 text-[#285082]">📦 Available Items</h2>
 
+          <div className="h-[200px] md:h-[300px] lg:h-[400px] overflow-y-auto rounded-md p-2 sm:p-3 md:p-4 shadow">
+            {scannedBoxes.length === 0 && (
+              <p className="text-gray-500">Scan RFID card or click Add to fetch box data</p>
+            )}
+      
+            {scannedBoxes.map((box, boxIdx) => (
+              <div key={box.uid ?? `fallback-${boxIdx}`} className="mb-4 p-3 border border-gray-200 rounded-lg shadow-sm bg-white">
+                <h4 className="font-semibold text-[#285082]">{box.box_name} (UID: {box.uid})</h4>
+                <ul>
+                  {box.items.map(item => (
+                    <li
+                      key={item.item_id}
+                      className="flex justify-between items-center mt-1 p-2 hover:bg-gray-50 rounded transition"
+                    >
+                      <span>{item.item_name} - {item.quantity} pcs</span>
+                      <button
+                        onClick={() => addItemToUser(item)}
+                        className="text-sm bg-[#285082] text-white px-2 py-1 rounded-md hover:bg-[#1f407a] transition"
+                      >
+                        Add
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+
+            <div ref={scannedBoxesEndRef} />
+            
+            {/* Fixed scan button under scroll box */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleAddBox}
+                className="px-4 py-2 bg-[#285082] text-white rounded-md hover:bg-[#1f407a] transition"
+              >
+                ➕ Scan RFID / Add Box
+              </button>
+              {/* <button
+                onClick={() => {
+                  setScannedBoxes([]);
+                  fetchedUIDsRef.current.clear();
+                }}
+                className="px-4 py-2 border border-[#285082] text-[#285082] rounded-md hover:bg-[#f0f8ff] transition"
+              >
+                🗑️ Clear
+              </button> */}
+            </div>
+            
+          </div>
+        </div>
+      </div>
+  
       {/* Finalize Button */}
       <div className="col-span-2 mt-4">
         <textarea
           value={logComment}
           onChange={(e) => setLogComment(e.target.value)}
-          placeholder="Add comment (optional)"
-          className="w-full border p-2 mb-4 rounded"
+          placeholder="💬 Add comment (optional)"
+          className="w-full border border-[#285082] p-3 mb-4 rounded-md shadow-inner focus:outline-none focus:ring-2 focus:ring-[#285082] transition"
         />
         <button
           onClick={handleCreateLog}
-          className="w-full py-3 bg-blue-700 text-white text-lg rounded hover:bg-blue-800"
+          className="w-full py-3 bg-[#285082] text-white text-lg rounded-md hover:bg-[#1f407a] transition shadow-md hover:shadow-xl"
         >
           ✅ Create Log
         </button>
       </div>
     </div>
-  );
+  );  
 };
 
 export default SelectItems;
