@@ -17,7 +17,9 @@
     "lucide-react": "^0.484.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^6.30.0"
+    "react-router-dom": "^6.30.0",
+    "simple-keyboard": "^3.8.53",
+    "simple-keyboard-layouts": "^3.4.86"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",

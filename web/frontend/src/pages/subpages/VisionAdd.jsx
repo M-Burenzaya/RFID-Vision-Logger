@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { UserPlus } from "lucide-react";
 import classNames from "classnames";
 import api from "../../api";
 
@@ -320,8 +321,8 @@ const VisionAdd = () => {
     <div className="flex flex-col justify-center items-center lg:flex-row md:space-x-6 lg:space-x-12 max-w-6xl mx-auto">
       {!isAdding ? (
         <div className="flex flex-col items-center justify-center text-center">
-          <img src="/add_user_icon.svg" alt="Add User" className="w-100 h-auto mb-4" />
-          <button
+          <UserPlus size={400}  strokeWidth={1} className="mb-4 text-[#285082]" />
+          <button 
             onClick={handleAddPersonClick}
             className="bg-[#285082] text-white px-6 py-3 rounded-md text-xl hover:bg-[#1f407a]"
           >

@@ -251,21 +251,25 @@ const HomePage = () => {
   };
   
   const handleReturn = async () => {
-    if (!isAddingPerson) {
-      // Normal "Return" from home
-      await stopContinuous();
-      setIsCreatingLog(false); // Hide everything and go back to Home
-      setImageSrc(null);       // Clear camera feed
-      setDetectedName(null);   // Clear detected name
-      setConfirmedPerson(null);
-      setIsRecognitionDone(false);
-      setSearchTerm("");       // Clear search bar
-      setShowSearchDropdown(false);
-      isAnotherPersonRef.current = false;
-      return;
-    }
+    // if (!isAddingPerson) {
+    //   // Normal "Return" from home
+    //   await stopContinuous();
+    //   setIsCreatingLog(false); // Hide everything and go back to Home
+    //   setImageSrc(null);       // Clear camera feed
+    //   setDetectedName(null);   // Clear detected name
+    //   setConfirmedPerson(null);
+    //   setIsRecognitionDone(false);
+    //   setSearchTerm("");       // Clear search bar
+    //   setShowSearchDropdown(false);
+    //   isAnotherPersonRef.current = false;
+    //   return;
+    // }
   
     // If "Adding Person" mode
+    await stopContinuous();
+    setIsCreatingLog(false); // Hide everything and go back to Home
+    setImageSrc(null);       // Clear camera feed
+
     setIsAddingPerson(false);
     setIsRecognitionDone(false);
     setConfirmedPerson(null);
@@ -275,7 +279,7 @@ const HomePage = () => {
     setShowSearchDropdown(false);
     isAnotherPersonRef.current = false;
   
-    await triggerContinuous();
+    // await triggerContinuous();
   };
   
   const capitalizeName = (name) =>
