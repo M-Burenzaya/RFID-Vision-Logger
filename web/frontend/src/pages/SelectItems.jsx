@@ -387,7 +387,7 @@ const SelectItems = () => {
     setShowBoxDropdown(false);
   };
   
-  
+  //
   
   const handleRemoveBox = (uid) => {
     const lowerUid = uid.trim().toLowerCase();
