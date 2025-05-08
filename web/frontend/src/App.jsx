@@ -50,7 +50,7 @@ function App() {
               <Navbar />  
             </div>
 
-            <div>
+            <div className="">
               <Routes>
                 <Route index element={<Home />} />
                 <Route path="/home/*" element={<Home />} />

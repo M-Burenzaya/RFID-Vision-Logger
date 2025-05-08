@@ -384,6 +384,7 @@ const SelectItems = () => {
     fetchedUIDsRef.current.add(lowerUid);
     await fetchBoxByUid(lowerUid);
     setAllBoxes(prev => prev.filter(box => box.uid !== lowerUid));
+    setIsScanned(true);
     setShowBoxDropdown(false);
   };
   
@@ -392,10 +393,13 @@ const SelectItems = () => {
   const handleRemoveBox = (uid) => {
     const lowerUid = uid.trim().toLowerCase();
   
+    console.log("[1] Removing box:", lowerUid);
+  
     setScannedBoxes(prev => prev.filter(box => box.uid !== lowerUid));
   
     const removed = originalBoxes.find(b => b.uid === lowerUid);
     if (removed) {
+      console.log("[2] Merging removed box into all boxes:", removed);
       setAllBoxes(prev => {
         const without = prev.filter(b => b.uid !== lowerUid);
         const merged = [...without, removed];
@@ -403,9 +407,12 @@ const SelectItems = () => {
         // Sort to match originalBoxes order
         return originalBoxes.filter(ob => merged.some(b => b.uid === ob.uid));
       });
+    } else {
+      console.log("[2] Box not found in original boxes:", lowerUid);
     }
   
     fetchedUIDsRef.current.delete(lowerUid);
+    console.log("[3] Removing from fetchedUIDsRef:", lowerUid);
   };
   
   
